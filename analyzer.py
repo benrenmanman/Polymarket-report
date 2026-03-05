@@ -9,44 +9,47 @@ def ai_analyze(info: dict, trend: dict) -> str:
     comparisons = trend.get("comparisons", {})
 
     if count < 2:
-        trend_block = "⚠️ 首次记录，暂无历史趋势，禁止编造任何对比数据。"
+        trend_block = "首次记录，无历史趋势。"
     else:
         available   = list(comparisons.keys())
         trend_block = f"""
-以下是基于真实历史快照的趋势数据（共 {count} 条记录），
-可用对比维度：{', '.join(available)}
-
+历史快照数：{count} 条，可对比维度：{', '.join(available)}
 {json.dumps(comparisons, ensure_ascii=False, indent=2)}
-
-⚠️ 只能使用以上维度进行对比，不得提及不存在的时间维度。
 """
 
     prompt = f"""
-你是专业预测市场分析师，请严格基于以下数据撰写播报，禁止编造数据。
+你是预测市场播报助手，请基于以下数据生成一条简洁播报卡片，禁止编造数据。
 
-【当前市场数据】
+【市场数据】
 {json.dumps(info, ensure_ascii=False, indent=2)}
 
-【趋势对比数据】
+【趋势数据】
 {trend_block}
 
-输出格式（Markdown）：
-1. 📌 市场标题 + 当前最高概率选项
-2. 📊 各选项概率
-3. 📈 趋势分析：
-   - 有哪些维度的数据就分析哪些，没有的不提
-   - 变化超过 5% 的选项重点标注 ⚠️
-4. 💡 市场情绪判断（2~3句）
-5. 💰 各维度交易量变化
+输出格式（严格按此结构，不加多余说明）：
+
+📌 **[市场标题]**
+🏆 领先：[最高概率选项] [概率]%
+
+📊 概率
+[选项A] [概率]% [↑/↓/—][变化幅度，无历史则省略]
+[选项B] [概率]% [↑/↓/—][变化幅度，无历史则省略]
+（变化超过5%加⚠️）
+
+💰 交易量：[总量或各维度简述，一行内]
+💡 [市场情绪一句话判断]
 """
 
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": "你是专业预测市场分析师，只基于提供的数据分析，不编造任何数字。"},
+            {"role": "system", "content": "你是预测市场播报助手，输出必须简洁，每条播报不超过10行。"},
             {"role": "user",   "content": prompt}
         ],
-        temperature=0.7,
-        max_tokens=1200,
+        max_completion_tokens=400,  # 单条压缩到400 token，多条不撑屏
     )
-    return response.choices[0].message.content.strip()
+
+    message = response.choices[0].message
+    if getattr(message, "refusal", None):
+        return "⚠️ 模型拒绝输出"
+    return (message.content or "").strip()
