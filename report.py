@@ -3,13 +3,11 @@ import json
 import os
 from datetime import datetime, timezone
 
-# ── 环境变量（从 GitHub Secrets 注入，本地测试时可改为直接赋值）──
-OPENAI_API_KEY  = os.environ["OPENAI_API_KEY"]
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://yinli.one")
-FEISHU_WEBHOOK  = os.environ["FEISHU_WEBHOOK"]
+# ── 环境变量 ──────────────────────────────────────────────
+FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 SLUGS = os.environ.get(
     "MARKET_SLUGS",
-    "fed-decision-in-october"
+    "bitcoin-price-eoy"
 ).split(",")
 
 
@@ -22,7 +20,7 @@ def fetch_market(slug: str) -> dict:
     return data[0] if data else {}
 
 
-# ── 2. 提取关键字段（减少 AI token 消耗）─────────────────
+# ── 2. 提取关键字段 ───────────────────────────────────────
 def extract_key_info(raw: dict) -> dict:
     markets = []
     for m in raw.get("markets", []):
@@ -43,43 +41,23 @@ def extract_key_info(raw: dict) -> dict:
     }
 
 
-# ── 3. 调用 AI 生成中文摘要 ───────────────────────────────
-def ask_ai(info: dict) -> str:
-    from openai import OpenAI
+# ── 3. 格式化为可读文本 ───────────────────────────────────
+def format_report(info: dict) -> str:
+    lines = []
+    lines.append(f"**📌 {info['title']}**")
+    lines.append(f"**💰 总交易量**：{info['volume_total_M']}M　｜　**近7日**：{info['volume_1wk_M']}M")
+    lines.append("")
 
-    client = OpenAI(
-        api_key=OPENAI_API_KEY,
-        base_url="https://yinli.one/v1"
-    )
+    for m in info["markets"]:
+        lines.append(f"**❓ {m['question']}**")
+        for option, price in m["options"].items():
+            pct = round(float(price) * 100, 1)
+            bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+            lines.append(f"- {option}：{bar} **{pct}%**")
+        lines.append(f"  交易量：{m['volume_M']}M")
+        lines.append("")
 
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",  # 可按需改为 gpt-4o
-        messages=[
-            {
-                "role": "system",
-                "content": "你是金融市场分析助手，请用中文输出简洁播报。"
-            },
-            {
-                "role": "user",
-                "content": f"""
-以下是 Polymarket 预测市场的最新数据（volume 单位：百万美元）：
-
-{json.dumps(info, ensure_ascii=False, indent=2)}
-
-请用中文输出简洁播报，格式如下：
-**📌 市场名称**：xxx
-**📊 各选项概率**：
-- 选项A：xx%
-- 选项B：xx%
-**💰 交易量**：总量 xxM / 近7日 xxM
-**📈 市场情绪**：一句话总结
-"""
-            }
-        ],
-        temperature=0.7,
-    )
-
-    return resp.choices[0].message.content.strip()
+    return "\n".join(lines)
 
 
 # ── 4. 推送飞书消息卡片 ───────────────────────────────────
@@ -119,7 +97,6 @@ def send_feishu(text: str):
     r.raise_for_status()
     result = r.json()
 
-    # 飞书返回 code=0 或 StatusCode=0 表示成功
     if result.get("code") != 0 and result.get("StatusCode") != 0:
         raise Exception(f"飞书推送失败：{result}")
 
@@ -130,10 +107,10 @@ def main():
 
     for slug in SLUGS:
         try:
-            raw     = fetch_market(slug)
-            info    = extract_key_info(raw)
-            summary = ask_ai(info)
-            messages.append(summary)
+            raw    = fetch_market(slug)
+            info   = extract_key_info(raw)
+            report = format_report(info)
+            messages.append(report)
             print(f"✅ {slug} 处理成功")
         except Exception as e:
             messages.append(f"⚠️ `{slug}` 获取失败：{e}")
