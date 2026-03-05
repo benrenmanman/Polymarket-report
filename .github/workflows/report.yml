@@ -29,8 +29,6 @@ jobs:
 
       - name: 🚀 运行播报脚本
         env:
-          OPENAI_API_KEY:  ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-          FEISHU_WEBHOOK:  ${{ secrets.FEISHU_WEBHOOK }}
-          MARKET_SLUGS:    ${{ secrets.MARKET_SLUGS }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          MARKET_SLUGS:   ${{ secrets.MARKET_SLUGS }}
         run: python report.py
