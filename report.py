@@ -90,18 +90,35 @@ def ai_analyze(info: dict, trend: dict) -> str:
 
 # ── 5. 读取并存储数据 ───────────────────────────────────
 HISTORY_FILE = "history.json"
+MAX_SNAPSHOTS = 2016  # 保留最近 2016 条 = 30分钟间隔下约 6 周数据
 
 def load_history() -> dict:
-    """读取上次的历史数据"""
+    """读取完整历史时间轴"""
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
-def save_history(data: dict):
-    """保存本次数据到历史文件"""
+def save_history(history: dict):
+    """保存历史，每个 slug 保留最近 MAX_SNAPSHOTS 条"""
+    for slug in history:
+        if len(history[slug]) > MAX_SNAPSHOTS:
+            history[slug] = history[slug][-MAX_SNAPSHOTS:]
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+def append_snapshot(history: dict, slug: str, info: dict) -> dict:
+    """把本次数据追加到该 slug 的历史数组"""
+    if slug not in history:
+        history[slug] = []
+    
+    snapshot = {
+        "timestamp": info["timestamp"],
+        "outcomes":  info.get("outcomes", []),
+        "volume":    info.get("volume", 0),
+    }
+    history[slug].append(snapshot)
+    return history
 
 # ── 6. 对比历史数据，计算变化趋势 ───────────────────────────────────
 def calc_trend(slug: str, current: dict, history: dict) -> dict:
