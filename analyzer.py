@@ -4,7 +4,6 @@ from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 
 client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
 
-
 def ai_analyze(info: dict, trend: dict) -> str:
     count       = trend.get("count", 0)
     comparisons = trend.get("comparisons", {})
