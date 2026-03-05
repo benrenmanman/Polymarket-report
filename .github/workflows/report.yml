@@ -1,0 +1,35 @@
+name: Polymarket 定时播报
+
+on:
+  # 定时触发（UTC 时间）
+  # 以下配置 = 北京时间 每天 09:00 / 15:00 / 21:00
+  schedule:
+    - cron: '0 1,7,13 * * *'
+
+  # 允许在 Actions 页面手动触发（方便测试）
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10       # 超时保护，防止卡死消耗额度
+
+    steps:
+      - name: 📥 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 🐍 配置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'          # 缓存依赖，加速后续运行
+
+      - name: 📦 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 🚀 运行播报脚本
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          MARKET_SLUGS:   ${{ secrets.MARKET_SLUGS }}
+        run: python report.py
