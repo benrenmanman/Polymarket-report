@@ -221,29 +221,32 @@ def send_feishu(text: str):
 # ── 5. 主流程 ─────────────────────────────────────────────
 def main():
     history = load_history()
-    current_snapshot = {}
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
     results = []
+
     for slug in SLUGS:
         slug = slug.strip()
         try:
             info = fetch_market(slug)
             info["timestamp"] = timestamp
-            trend = calc_trend(slug, info, history)
+
+            # 先计算趋势（用追加前的历史）
+            trend = calc_trend(slug, history)
+
+            # 再追加本次快照
+            history = append_snapshot(history, slug, info)
+
             analysis = ai_analyze(info, trend)
             results.append(analysis)
-            current_snapshot[slug] = info
-            print(f"✅ {slug} 处理完成")
+            print(f"✅ {slug} 处理完成（历史共 {len(history[slug])} 条）")
         except Exception as e:
             print(f"⚠️ {slug} 处理失败：{e}")
 
-    # 推送消息
     if results:
         full_report = "\n\n---\n\n".join(results)
-        send_feishu(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
+        send_wecom(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
 
-    # 保存历史数据
-    save_history(current_snapshot)
+    # 保存追加后的完整历史
+    save_history(history)
 
 main()
