@@ -1,3 +1,10 @@
+import json
+from openai import OpenAI
+from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
+
+client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+
+
 def ai_analyze(info: dict, trend: dict) -> str:
     count       = trend.get("count", 0)
     comparisons = trend.get("comparisons", {})
@@ -27,7 +34,9 @@ def ai_analyze(info: dict, trend: dict) -> str:
 输出格式（Markdown）：
 1. 📌 市场标题 + 当前最高概率选项
 2. 📊 各选项概率
-3. 📈 趋势分析
+3. 📈 趋势分析：
+   - 有哪些维度的数据就分析哪些，没有的不提
+   - 变化超过 5% 的选项重点标注 ⚠️
 4. 💡 市场情绪判断（2~3句）
 5. 💰 各维度交易量变化
 """
@@ -38,14 +47,7 @@ def ai_analyze(info: dict, trend: dict) -> str:
             {"role": "system", "content": "你是专业预测市场分析师，只基于提供的数据分析，不编造任何数字。"},
             {"role": "user",   "content": prompt}
         ],
-        max_completion_tokens=1200,   # ✅ 兼容新模型
+        temperature=0.7,
+        max_tokens=1200,
     )
-
-    message = response.choices[0].message
-
-    # ✅ 处理模型拒绝的情况
-    if getattr(message, "refusal", None):
-        print(f"⚠️ 模型拒绝回答：{message.refusal}")
-        return ""
-
-    return (message.content or "").strip()
+    return response.choices[0].message.content.strip()
