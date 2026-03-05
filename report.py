@@ -4,6 +4,11 @@ import os
 from datetime import datetime, timezone
 from openai import OpenAI
 
+client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+print(f"DEBUG client type: {type(client)}")
+print(f"DEBUG base_url: {OPENAI_BASE_URL}")
+print(f"DEBUG model: {OPENAI_MODEL}")
+
 # ── 环境变量 ──────────────────────────────────────────────
 FEISHU_WEBHOOK  = os.environ["FEISHU_WEBHOOK"]
 OPENAI_API_KEY  = os.environ["OPENAI_API_KEY"]
