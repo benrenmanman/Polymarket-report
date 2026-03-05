@@ -49,7 +49,7 @@ def ask_ai(info: dict) -> str:
 
     client = OpenAI(
         api_key=OPENAI_API_KEY,
-        base_url=OPENAI_BASE_URL + "/v1",  # 中转 API 通常需要加 /v1
+        base_url="https://yinli.one/v1"
     )
 
     resp = client.chat.completions.create(
