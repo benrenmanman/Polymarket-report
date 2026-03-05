@@ -121,41 +121,49 @@ def append_snapshot(history: dict, slug: str, info: dict) -> dict:
     return history
 
 # ── 6. 对比历史数据，计算变化趋势 ───────────────────────────────────
-def calc_trend(slug: str, current: dict, history: dict) -> dict:
-    """对比历史数据，计算变化趋势"""
-    trend = {}
-    prev = history.get(slug)
+def calc_trend(slug: str, history: dict) -> dict:
+    """从历史时间轴提取多维度趋势"""
+    snapshots = history.get(slug, [])
+    count = len(snapshots)
+    
+    if count < 2:
+        return {"status": "首次记录，暂无趋势数据", "count": count}
 
-    if not prev:
-        trend["status"] = "首次记录，暂无趋势数据"
-        return trend
+    trend = {"count": count, "comparisons": {}}
+    latest = snapshots[-1]
 
-    trend["time_diff"] = f"距上次更新：{prev.get('timestamp', '未知')}"
-    trend["changes"] = []
+    # 定义对比维度：名称 → 往前取第几条
+    intervals = {}
+    if count >= 2:   intervals["30分钟前"] = snapshots[-2]
+    if count >= 48:  intervals["24小时前"] = snapshots[-48]
+    if count >= 336: intervals["7天前"]   = snapshots[-336]
+    if count >= 1440:intervals["30天前"]  = snapshots[-1440]
 
-    # 对比每个选项的概率变化
-    curr_outcomes = {o["title"]: o["probability"] for o in current.get("outcomes", [])}
-    prev_outcomes = {o["title"]: o["probability"] for o in prev.get("outcomes", [])}
+    latest_probs = {o["title"]: o["probability"] for o in latest["outcomes"]}
 
-    for title, curr_prob in curr_outcomes.items():
-        prev_prob = prev_outcomes.get(title, curr_prob)
-        delta = round(curr_prob - prev_prob, 4)
-        arrow = "📈" if delta > 0.01 else ("📉" if delta < -0.01 else "➡️")
-        trend["changes"].append({
-            "option": title,
-            "prev":    f"{prev_prob*100:.1f}%",
-            "current": f"{curr_prob*100:.1f}%",
-            "delta":   f"{delta*100:+.1f}%",
-            "arrow":   arrow
-        })
-
-    # 交易量变化
-    curr_vol = current.get("volume", 0)
-    prev_vol = prev.get("volume", 0)
-    trend["volume_delta"] = f"{curr_vol - prev_vol:+.0f} USDC"
+    for label, old_snap in intervals.items():
+        old_probs = {o["title"]: o["probability"] for o in old_snap["outcomes"]}
+        changes = []
+        for title, curr_prob in latest_probs.items():
+            old_prob = old_probs.get(title, curr_prob)
+            delta = round(curr_prob - old_prob, 4)
+            arrow = "📈" if delta > 0.01 else ("📉" if delta < -0.01 else "➡️")
+            changes.append({
+                "option":  title,
+                "old":     f"{old_prob*100:.1f}%",
+                "current": f"{curr_prob*100:.1f}%",
+                "delta":   f"{delta*100:+.1f}%",
+                "arrow":   arrow
+            })
+        
+        vol_delta = latest["volume"] - old_snap["volume"]
+        trend["comparisons"][label] = {
+            "from_timestamp": old_snap["timestamp"],
+            "changes":        changes,
+            "volume_delta":   f"{vol_delta:+.0f} USDC"
+        }
 
     return trend
-
 
 # ── 4. 推送飞书消息卡片 ───────────────────────────────────
 def send_feishu(text: str):
