@@ -52,84 +52,40 @@ def extract_key_info(raw: dict) -> dict:
     }
 
 # ── 3. AI 分析 ────────────────────────────────────────────
-def ai_analyze(info: dict) -> str:
+def ai_analyze(info: dict, trend: dict) -> str:
     prompt = f"""
-你是一位专业的预测市场分析师。以下是来自 Polymarket 的市场数据，请用中文撰写一份简洁的播报分析。
+你是一位专业的预测市场分析师。以下是 Polymarket 市场的当前数据和趋势变化，请用中文撰写分析播报。
 
-市场数据：
+【当前市场数据】
 {json.dumps(info, ensure_ascii=False, indent=2)}
 
+【趋势变化数据】
+{json.dumps(trend, ensure_ascii=False, indent=2)}
+
 要求：
-1. 用 **Markdown 格式** 输出，适合在飞书消息卡片中展示
+1. 用 Markdown 格式输出
 2. 包含以下内容：
    - 📌 市场标题 + 当前最高概率选项
    - 📊 各选项概率（用进度条 █ 表示）
-   - 💡 简短的市场解读（2~3句话，分析市场情绪和可能原因）
-   - 💰 交易量数据
-3. 语言简洁专业，避免废话
-4. 不要输出代码块，直接输出 Markdown 文本
+   - 📈 趋势解读：概率在上升还是下降？变化幅度是否显著？
+   - 💡 市场情绪分析：结合趋势判断市场共识方向（2~3句话）
+   - 💰 交易量变化
+3. 如果某个选项概率变化超过 5%，重点标注并分析可能原因
+4. 如果是首次记录，说明暂无趋势，只做当前数据分析
 """
-
-    # ── 防御性检查 ──
-    if not isinstance(client, OpenAI):
-        raise Exception(f"client 类型异常：{type(client)}，请检查 OPENAI_BASE_URL 和 OPENAI_API_KEY")
 
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": "你是专业的预测市场分析师，擅长解读 Polymarket 数据并给出简洁有价值的市场洞察。"},
+            {"role": "system", "content": "你是专业的预测市场分析师，擅长解读概率变化趋势并给出有价值的市场洞察。"},
             {"role": "user",   "content": prompt}
         ],
         temperature=0.7,
-        max_tokens=800,
+        max_tokens=1000,
     )
-
-    # ── 确认返回类型 ──
-    if not hasattr(response, "choices"):
-        raise Exception(f"OpenAI 返回类型异常：{type(response)}，内容：{response}")
 
     return response.choices[0].message.content.strip()
 
-
-# ── 4. 推送飞书消息卡片 ───────────────────────────────────
-def send_feishu(text: str):
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-    payload = {
-        "msg_type": "interactive",
-        "card": {
-            "schema": "2.0",
-            "header": {
-                "title": {
-                    "tag": "plain_text",
-                    "content": "📊 Polymarket AI 播报"
-                },
-                "template": "blue"
-            },
-            "body": {
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": text
-                    },
-                    {
-                        "tag": "hr"
-                    },
-                    {
-                        "tag": "markdown",
-                        "content": f"🕐 更新时间：{now}"
-                    }
-                ]
-            }
-        }
-    }
-
-    r = requests.post(FEISHU_WEBHOOK, json=payload, timeout=15)
-    r.raise_for_status()
-    result = r.json()
-
-    if result.get("code") != 0 and result.get("StatusCode") != 0:
-        raise Exception(f"飞书推送失败：{result}")
 
 # ── 5. 读取并存储数据 ───────────────────────────────────
 HISTORY_FILE = "history.json"
@@ -183,25 +139,73 @@ def calc_trend(slug: str, current: dict, history: dict) -> dict:
     return trend
 
 
+# ── 4. 推送飞书消息卡片 ───────────────────────────────────
+def send_feishu(text: str):
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    payload = {
+        "msg_type": "interactive",
+        "card": {
+            "schema": "2.0",
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": "📊 Polymarket AI 播报"
+                },
+                "template": "blue"
+            },
+            "body": {
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": text
+                    },
+                    {
+                        "tag": "hr"
+                    },
+                    {
+                        "tag": "markdown",
+                        "content": f"🕐 更新时间：{now}"
+                    }
+                ]
+            }
+        }
+    }
+
+    r = requests.post(FEISHU_WEBHOOK, json=payload, timeout=15)
+    r.raise_for_status()
+    result = r.json()
+
+    if result.get("code") != 0 and result.get("StatusCode") != 0:
+        raise Exception(f"飞书推送失败：{result}")
+
+
 # ── 5. 主流程 ─────────────────────────────────────────────
 def main():
-    messages = []
+    history = load_history()
+    current_snapshot = {}
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    results = []
     for slug in SLUGS:
+        slug = slug.strip()
         try:
-            raw    = fetch_market(slug)
-            info   = extract_key_info(raw)
-            report = ai_analyze(info)
-            messages.append(report)
-            print(f"✅ {slug} 处理成功")
+            info = fetch_market(slug)
+            info["timestamp"] = timestamp
+            trend = calc_trend(slug, info, history)
+            analysis = ai_analyze(info, trend)
+            results.append(analysis)
+            current_snapshot[slug] = info
+            print(f"✅ {slug} 处理完成")
         except Exception as e:
-            messages.append(f"⚠️ `{slug}` 处理失败：{e}")
-            print(f"❌ {slug} 出错：{e}")
+            print(f"⚠️ {slug} 处理失败：{e}")
 
-    final_text = "\n\n---\n\n".join(messages)
-    send_feishu(final_text)
-    print("✅ 飞书推送成功")
+    # 推送消息
+    if results:
+        full_report = "\n\n---\n\n".join(results)
+        send_wecom(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
 
+    # 保存历史数据
+    save_history(current_snapshot)
 
-if __name__ == "__main__":
-    main()
+main()
