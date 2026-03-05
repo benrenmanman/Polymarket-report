@@ -9,7 +9,7 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5")
 SLUGS = os.environ.get(
     "MARKET_SLUGS",
-    "what-price-will-bitcoin-hit-in-2025,will-trump-win-2024"  # 直接在这里维护
+    "us-x-iran-ceasefire-by,us-forces-enter-iran-by,will-iran-name-a-successor-to-khamenei-by"  # 直接在这里维护
 ).split(",")
 
 # ── 历史快照配置 ──
