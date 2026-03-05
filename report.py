@@ -54,7 +54,7 @@ def extract_key_info(raw: dict) -> dict:
 # ── 3. AI 分析 ────────────────────────────────────────────
 def ai_analyze(info: dict, trend: dict) -> str:
     prompt = f"""
-你是一位专业的预测市场分析师。以下是 Polymarket 市场的当前数据和趋势变化，请用中文撰写分析播报。
+你是一位专业的预测市场分析师,请严格基于以下数据撰写分析，不得编造任何数据。以下是 Polymarket 市场的当前数据和趋势变化，请用中文撰写分析播报。
 
 【当前市场数据】
 {json.dumps(info, ensure_ascii=False, indent=2)}
@@ -72,6 +72,7 @@ def ai_analyze(info: dict, trend: dict) -> str:
    - 💰 交易量变化
 3. 如果某个选项概率变化超过 5%，重点标注并分析可能原因
 4. 如果是首次记录，说明暂无趋势，只做当前数据分析
+6. 禁止出现"上周"、"上月"、"昨日"等无数据支撑的时间对比
 """
 
     response = client.chat.completions.create(
