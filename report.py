@@ -2,36 +2,33 @@ import requests
 import json
 import os
 from datetime import datetime, timezone
+from openai import OpenAI
 
 # ── 环境变量 ──────────────────────────────────────────────
-FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
-SLUGS = os.environ.get(
-    "MARKET_SLUGS",
-    "bitcoin-price-eoy"
-).split(",")
+FEISHU_WEBHOOK  = os.environ["FEISHU_WEBHOOK"]
+OPENAI_API_KEY  = os.environ["OPENAI_API_KEY"]
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+OPENAI_MODEL    = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+SLUGS = os.environ.get("MARKET_SLUGS", "what-price-will-bitcoin-hit-in-2025").split(",")
+
+client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
 
 
 # ── 1. 拉取 Polymarket 数据 ───────────────────────────────
 def fetch_market(slug: str) -> dict:
     slug = slug.strip()
-    
-    # 先试 events 端点
-    url = f"https://gamma-api.polymarket.com/events?slug={slug}"
+    url  = f"https://gamma-api.polymarket.com/events?slug={slug}"
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    print(f"events 端点返回：{json.dumps(data, ensure_ascii=False, indent=2)}")
-    
+
     if data:
         return data[0]
-    
-    # 如果空，再试 markets 端点
-    url2 = f"https://gamma-api.polymarket.com/markets?slug={slug}"
+
+    url2  = f"https://gamma-api.polymarket.com/markets?slug={slug}"
     resp2 = requests.get(url2, timeout=30)
     resp2.raise_for_status()
     data2 = resp2.json()
-    print(f"markets 端点返回：{json.dumps(data2, ensure_ascii=False, indent=2)}")
-    
     return data2[0] if data2 else {}
 
 
@@ -56,23 +53,35 @@ def extract_key_info(raw: dict) -> dict:
     }
 
 
-# ── 3. 格式化为可读文本 ───────────────────────────────────
-def format_report(info: dict) -> str:
-    lines = []
-    lines.append(f"**📌 {info['title']}**")
-    lines.append(f"**💰 总交易量**：{info['volume_total_M']}M　｜　**近7日**：{info['volume_1wk_M']}M")
-    lines.append("")
+# ── 3. AI 分析 ────────────────────────────────────────────
+def ai_analyze(info: dict) -> str:
+    prompt = f"""
+你是一位专业的预测市场分析师。以下是来自 Polymarket 的市场数据，请用中文撰写一份简洁的播报分析。
 
-    for m in info["markets"]:
-        lines.append(f"**❓ {m['question']}**")
-        for option, price in m["options"].items():
-            pct = round(float(price) * 100, 1)
-            bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
-            lines.append(f"- {option}：{bar} **{pct}%**")
-        lines.append(f"  交易量：{m['volume_M']}M")
-        lines.append("")
+市场数据：
+{json.dumps(info, ensure_ascii=False, indent=2)}
 
-    return "\n".join(lines)
+要求：
+1. 用 **Markdown 格式** 输出，适合在飞书消息卡片中展示
+2. 包含以下内容：
+   - 📌 市场标题 + 当前最高概率选项
+   - 📊 各选项概率（用进度条 █ 表示）
+   - 💡 简短的市场解读（2~3句话，分析市场情绪和可能原因）
+   - 💰 交易量数据
+3. 语言简洁专业，避免废话
+4. 不要输出代码块，直接输出 Markdown 文本
+"""
+
+    response = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": "你是专业的预测市场分析师，擅长解读 Polymarket 数据并给出简洁有价值的市场洞察。"},
+            {"role": "user",   "content": prompt}
+        ],
+        temperature=0.7,
+        max_tokens=800,
+    )
+    return response.choices[0].message.content.strip()
 
 
 # ── 4. 推送飞书消息卡片 ───────────────────────────────────
@@ -86,7 +95,7 @@ def send_feishu(text: str):
             "header": {
                 "title": {
                     "tag": "plain_text",
-                    "content": "📊 Polymarket 定时播报"
+                    "content": "📊 Polymarket AI 播报"
                 },
                 "template": "blue"
             },
@@ -123,13 +132,12 @@ def main():
     for slug in SLUGS:
         try:
             raw    = fetch_market(slug)
-            print(json.dumps(raw, ensure_ascii=False, indent=2))  # ← 加这行
             info   = extract_key_info(raw)
-            report = format_report(info)
+            report = ai_analyze(info)
             messages.append(report)
             print(f"✅ {slug} 处理成功")
         except Exception as e:
-            messages.append(f"⚠️ `{slug}` 获取失败：{e}")
+            messages.append(f"⚠️ `{slug}` 处理失败：{e}")
             print(f"❌ {slug} 出错：{e}")
 
     final_text = "\n\n---\n\n".join(messages)
