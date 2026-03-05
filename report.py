@@ -1,28 +1,40 @@
 from datetime import datetime, timezone, timedelta
 from config   import SLUGS
 from analyzer import ai_analyze
-from db       import get_recent_snapshots
+from db       import get_snapshot_at, get_latest_snapshot
 from notifier import send_feishu
 
 
-def build_trend(rows: list[dict]) -> dict:
-    """将多条快照转为趋势结构，喂给 ai_analyze"""
-    count = len(rows)
-    if count < 2:
-        return {"count": count, "comparisons": {}}
+def build_trend(slug: str, tz_bj) -> dict:
+    """
+    精确取4个时间节点：
+    - 最新：数据库最新一条
+    - 上次：上一条（约10分钟前）
+    - 上周：约7天前最近一条
+    - 上月：约30天前最近一条
+    """
+    now = datetime.now(timezone.utc)
 
-    latest   = rows[-1]["data"]
-    earliest = rows[0]["data"]
-    mid      = rows[count // 2]["data"] if count >= 4 else None
+    latest    = get_latest_snapshot(slug)
+    last      = get_snapshot_at(slug, now - timedelta(minutes=10))
+    last_week = get_snapshot_at(slug, now - timedelta(days=7))
+    last_month= get_snapshot_at(slug, now - timedelta(days=30))
 
-    comparisons = {
-        "最早快照": earliest,
-        "最新快照": latest,
+    snapshots = {}
+
+    if latest:
+        snapshots["最新"] = latest["data"]
+    if last and last.get("id") != (latest or {}).get("id"):
+        snapshots["上次（约10分钟前）"] = last["data"]
+    if last_week:
+        snapshots["上周同期"] = last_week["data"]
+    if last_month:
+        snapshots["上月同期"] = last_month["data"]
+
+    return {
+        "count": len(snapshots),
+        "comparisons": snapshots
     }
-    if mid:
-        comparisons["中间快照"] = mid
-
-    return {"count": count, "comparisons": comparisons}
 
 
 def main():
@@ -33,17 +45,17 @@ def main():
     for slug in SLUGS:
         slug = slug.strip()
         try:
-            rows  = get_recent_snapshots(slug, limit=6)  # 最近1小时
-            if not rows:
+            latest = get_latest_snapshot(slug)
+            if not latest:
                 print(f"⚠️ {slug} 暂无数据，跳过")
                 continue
 
-            info  = rows[-1]["data"]   # 最新一条作为当前数据
-            trend = build_trend(rows)
+            info  = latest["data"]
+            trend = build_trend(slug, tz_bj)
 
             analysis = ai_analyze(info, trend)
             results.append(analysis)
-            print(f"✅ {slug} 分析完成（共 {len(rows)} 条快照）")
+            print(f"✅ {slug} 分析完成（快照维度：{list(trend['comparisons'].keys())}）")
         except Exception as e:
             print(f"⚠️ {slug} 分析失败：{e}")
 
