@@ -244,7 +244,7 @@ def main():
 
     if results:
         full_report = "\n\n---\n\n".join(results)
-        send_wecom(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
+        send_feishu(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
 
     # 保存追加后的完整历史
     save_history(history)
