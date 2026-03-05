@@ -53,40 +53,52 @@ def extract_key_info(raw: dict) -> dict:
 
 # ── 3. AI 分析 ────────────────────────────────────────────
 def ai_analyze(info: dict, trend: dict) -> str:
+    count = trend.get("count", 0)
+    comparisons = trend.get("comparisons", {})
+
+    # 动态生成趋势说明
+    if count < 2:
+        trend_block = "⚠️ 首次记录，暂无历史趋势，禁止编造任何对比数据。"
+    else:
+        available = list(comparisons.keys())
+        trend_block = f"""
+以下是基于真实历史快照的趋势数据（共 {count} 条记录），
+可用对比维度：{', '.join(available)}
+
+{json.dumps(comparisons, ensure_ascii=False, indent=2)}
+
+⚠️ 只能使用以上维度进行对比，不得提及不存在的时间维度。
+"""
+
     prompt = f"""
-你是一位专业的预测市场分析师,请严格基于以下数据撰写分析，不得编造任何数据。以下是 Polymarket 市场的当前数据和趋势变化，请用中文撰写分析播报。
+你是专业预测市场分析师，请严格基于以下数据撰写播报，禁止编造数据。
 
 【当前市场数据】
 {json.dumps(info, ensure_ascii=False, indent=2)}
 
-【趋势变化数据】
-{json.dumps(trend, ensure_ascii=False, indent=2)}
+【趋势对比数据】
+{trend_block}
 
-要求：
-1. 用 Markdown 格式输出
-2. 包含以下内容：
-   - 📌 市场标题 + 当前最高概率选项
-   - 📊 各选项概率
-   - 📈 趋势解读：概率在上升还是下降？变化幅度是否显著？
-   - 💡 市场情绪分析：结合趋势判断市场共识方向（2~3句话）
-   - 💰 交易量变化
-3. 如果某个选项概率变化超过 5%，重点标注并分析可能原因
-4. 如果是首次记录，说明暂无趋势，只做当前数据分析
-6. 禁止出现"上周"、"上月"、"昨日"等无数据支撑的时间对比
+输出格式（Markdown）：
+1. 📌 市场标题 + 当前最高概率选项
+2. 📊 各选项概率
+3. 📈 趋势分析：
+   - 有哪些维度的数据就分析哪些，没有的不提
+   - 变化超过 5% 的选项重点标注 ⚠️
+4. 💡 市场情绪判断（2~3句）
+5. 💰 各维度交易量变化
 """
 
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": "你是专业的预测市场分析师，擅长解读概率变化趋势并给出有价值的市场洞察。"},
+            {"role": "system", "content": "你是专业预测市场分析师，只基于提供的数据分析，不编造任何数字。"},
             {"role": "user",   "content": prompt}
         ],
         temperature=0.7,
-        max_tokens=1000,
+        max_tokens=1200,
     )
-
     return response.choices[0].message.content.strip()
-
 
 # ── 5. 读取并存储数据 ───────────────────────────────────
 HISTORY_FILE = "history.json"
