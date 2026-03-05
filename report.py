@@ -108,6 +108,7 @@ def main():
     for slug in SLUGS:
         try:
             raw    = fetch_market(slug)
+            print(json.dumps(raw, ensure_ascii=False, indent=2))  # ← 加这行
             info   = extract_key_info(raw)
             report = format_report(info)
             messages.append(report)
