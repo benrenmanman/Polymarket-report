@@ -19,6 +19,7 @@ def ai_analyze(info: dict, trend: dict) -> str:
 
     prompt = f"""
 你是预测市场播报助手，请基于以下数据生成一条简洁播报卡片，禁止编造数据。
+所有内容（包括市场标题、选项名称）必须翻译为中文输出。
 
 【市场数据】
 {json.dumps(info, ensure_ascii=False, indent=2)}
@@ -28,25 +29,29 @@ def ai_analyze(info: dict, trend: dict) -> str:
 
 输出格式（严格按此结构，不加多余说明）：
 
-📌 **[市场标题]**
-🏆 领先：[最高概率选项] [概率]%
+📌 **[市场标题（中文）]**
+🏆 领先：[最高概率选项（中文）] [概率]%
 
 📊 概率
-[选项A] [概率]% [↑/↓/—][变化幅度，无历史则省略]
-[选项B] [概率]% [↑/↓/—][变化幅度，无历史则省略]
+[选项A（中文）] [概率]% [↑/↓/—][变化幅度，无历史则省略]
+[选项B（中文）] [概率]% [↑/↓/—][变化幅度，无历史则省略]
 （变化超过5%加⚠️）
 
 💰 交易量：[总量或各维度简述，一行内]
-💡 [市场情绪一句话判断]
+💡 [市场情绪一句话判断（中文）]
 """
 
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": "你是预测市场播报助手，输出必须简洁，每条播报不超过10行。"},
-            {"role": "user",   "content": prompt}
+            {"role": "system", "content": (
+                "你是预测市场播报助手，输出必须全程使用中文，"
+                "包括市场标题和所有选项名称均需翻译为中文。"
+                "每条播报不超过10行，禁止输出任何英文内容。"
+            )},
+            {"role": "user", "content": prompt}
         ],
-        max_completion_tokens=400,  # 单条压缩到400 token，多条不撑屏
+        max_completion_tokens=400,
     )
 
     message = response.choices[0].message
