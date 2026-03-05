@@ -9,6 +9,9 @@ on:
   # 允许在 Actions 页面手动触发（方便测试）
   workflow_dispatch:
 
+permissions:
+  contents: write   # ← 加这两行
+
 jobs:
   report:
     runs-on: ubuntu-latest
