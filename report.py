@@ -4,6 +4,10 @@ import os
 from datetime import datetime, timezone
 from openai import OpenAI
 
+# ── 全局常量 ──────────────────────────────────────────────
+HISTORY_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history.json")
+MAX_SNAPSHOTS = 1440  # 最多保留 1440 条（按每30分钟一条，约30天）
+
 # ── 必须先读环境变量，再初始化 client ──
 FEISHU_WEBHOOK  = os.environ["FEISHU_WEBHOOK"]
 OPENAI_API_KEY  = os.environ["OPENAI_API_KEY"]
@@ -56,7 +60,6 @@ def ai_analyze(info: dict, trend: dict) -> str:
     count = trend.get("count", 0)
     comparisons = trend.get("comparisons", {})
 
-    # 动态生成趋势说明
     if count < 2:
         trend_block = "⚠️ 首次记录，暂无历史趋势，禁止编造任何对比数据。"
     else:
@@ -100,12 +103,8 @@ def ai_analyze(info: dict, trend: dict) -> str:
     )
     return response.choices[0].message.content.strip()
 
-# ── 5. 读取并存储数据 ───────────────────────────────────
+# ── 5. 读取历史数据 ───────────────────────────────────────
 def load_history() -> dict:
-    """
-    读取 history.json。
-    文件不存在时返回空字典，结构损坏时打印警告并返回空字典。
-    """
     if not os.path.exists(HISTORY_FILE):
         print("📂 history.json 不存在，将创建新文件")
         return {}
@@ -118,14 +117,8 @@ def load_history() -> dict:
         print(f"⚠️ history.json 解析失败：{e}，将重置为空")
         return {}
 
-# ─────────────────────────────────────────────
-# 2. 历史数据：精简快照构建
-# ─────────────────────────────────────────────
+# ── 精简快照构建 ──────────────────────────────────────────
 def build_snapshot(info: dict) -> dict:
-    """
-    从完整 API 数据中提取精简快照，过滤已关闭/归档的子市场。
-    outcomePrices 兼容字符串数组和字典两种格式。
-    """
     active_markets = [
         m for m in info.get("markets", [])
         if not m.get("archived", False) and not m.get("closed", False)
@@ -133,7 +126,6 @@ def build_snapshot(info: dict) -> dict:
 
     markets_snapshot = []
     for m in active_markets:
-        # outcomePrices 可能是 JSON 字符串 "[\"0.31\", \"0.69\"]" 或已解析的字典
         raw_prices = m.get("outcomePrices", "[]")
         if isinstance(raw_prices, str):
             try:
@@ -173,14 +165,8 @@ def build_snapshot(info: dict) -> dict:
         "markets":    markets_snapshot,
     }
 
-# ─────────────────────────────────────────────
-# 3. 历史数据：追加快照
-# ─────────────────────────────────────────────
+# ── 追加快照 ──────────────────────────────────────────────
 def append_snapshot(history: dict, slug: str, info: dict) -> dict:
-    """
-    把本次精简快照追加到 history[slug] 数组末尾。
-    超过 MAX_SNAPSHOTS 时自动裁剪最旧的记录。
-    """
     if slug not in history:
         history[slug] = []
 
@@ -192,14 +178,8 @@ def append_snapshot(history: dict, slug: str, info: dict) -> dict:
 
     return history
 
-# ─────────────────────────────────────────────
-# 4. 历史数据：保存
-# ─────────────────────────────────────────────
+# ── 保存历史数据 ──────────────────────────────────────────
 def save_history(history: dict):
-    """
-    将完整历史写回 history.json。
-    先写临时文件再原子替换，防止写入中断导致文件损坏。
-    """
     tmp_file = HISTORY_FILE + ".tmp"
     try:
         with open(tmp_file, "w", encoding="utf-8") as f:
@@ -212,53 +192,68 @@ def save_history(history: dict):
         if os.path.exists(tmp_file):
             os.remove(tmp_file)
 
-
-# ── 6. 对比历史数据，计算变化趋势 ───────────────────────────────────
+# ── 计算趋势 ──────────────────────────────────────────────
 def calc_trend(slug: str, history: dict) -> dict:
-    """从历史时间轴提取多维度趋势"""
     snapshots = history.get(slug, [])
     count = len(snapshots)
-    
+
     if count < 2:
         return {"status": "首次记录，暂无趋势数据", "count": count}
 
-    trend = {"count": count, "comparisons": {}}
-    latest = snapshots[-1]
+    trend    = {"count": count, "comparisons": {}}
+    latest   = snapshots[-1]
 
     # 定义对比维度：名称 → 往前取第几条
     intervals = {}
-    if count >= 2:   intervals["30分钟前"] = snapshots[-2]
-    if count >= 48:  intervals["24小时前"] = snapshots[-48]
-    if count >= 336: intervals["7天前"]   = snapshots[-336]
-    if count >= 1440:intervals["30天前"]  = snapshots[-1440]
+    if count >= 2:    intervals["30分钟前"] = snapshots[-2]
+    if count >= 48:   intervals["24小时前"] = snapshots[-48]
+    if count >= 336:  intervals["7天前"]    = snapshots[-336]
+    if count >= 1440: intervals["30天前"]   = snapshots[-1440]
 
-    latest_probs = {o["title"]: o["probability"] for o in latest["outcomes"]}
+    # ✅ 修复：使用 build_snapshot 实际存储的 outcomePrices 字典结构
+    def get_prices(snap: dict) -> dict:
+        """聚合该快照下所有子市场的 outcomePrices，以 question 为 key"""
+        return {
+            m["question"]: m.get("outcomePrices", {})
+            for m in snap.get("markets", [])
+        }
+
+    latest_prices = get_prices(latest)
 
     for label, old_snap in intervals.items():
-        old_probs = {o["title"]: o["probability"] for o in old_snap["outcomes"]}
+        old_prices = get_prices(old_snap)
         changes = []
-        for title, curr_prob in latest_probs.items():
-            old_prob = old_probs.get(title, curr_prob)
-            delta = round(curr_prob - old_prob, 4)
-            arrow = "📈" if delta > 0.01 else ("📉" if delta < -0.01 else "➡️")
-            changes.append({
-                "option":  title,
-                "old":     f"{old_prob*100:.1f}%",
-                "current": f"{curr_prob*100:.1f}%",
-                "delta":   f"{delta*100:+.1f}%",
-                "arrow":   arrow
-            })
-        
-        vol_delta = latest["volume"] - old_snap["volume"]
+
+        for question, curr_opts in latest_prices.items():
+            old_opts = old_prices.get(question, curr_opts)
+            for option, curr_prob in curr_opts.items():
+                old_prob = old_opts.get(option, curr_prob)
+                try:
+                    curr_f = float(curr_prob)
+                    old_f  = float(old_prob)
+                except (TypeError, ValueError):
+                    continue
+                delta = round(curr_f - old_f, 4)
+                arrow = "📈" if delta > 0.01 else ("📉" if delta < -0.01 else "➡️")
+                changes.append({
+                    "question": question,
+                    "option":   option,
+                    "old":      f"{old_f  * 100:.1f}%",
+                    "current":  f"{curr_f * 100:.1f}%",
+                    "delta":    f"{delta  * 100:+.1f}%",
+                    "arrow":    arrow
+                })
+
+        vol_delta = latest.get("volume", 0) - old_snap.get("volume", 0)
         trend["comparisons"][label] = {
-            "from_timestamp": old_snap["timestamp"],
+            "from_timestamp": old_snap.get("timestamp", ""),
             "changes":        changes,
             "volume_delta":   f"{vol_delta:+.0f} USDC"
         }
 
     return trend
 
-# ── 4. 推送飞书消息卡片 ───────────────────────────────────
+# ── 推送飞书消息卡片 ──────────────────────────────────────
 def send_feishu(text: str):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -298,12 +293,11 @@ def send_feishu(text: str):
     if result.get("code") != 0 and result.get("StatusCode") != 0:
         raise Exception(f"飞书推送失败：{result}")
 
-
-# ── 5. 主流程 ─────────────────────────────────────────────
+# ── 主流程 ────────────────────────────────────────────────
 def main():
-    history = load_history()
+    history   = load_history()
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    results = []
+    results   = []
 
     for slug in SLUGS:
         slug = slug.strip()
@@ -311,10 +305,7 @@ def main():
             info = fetch_market(slug)
             info["timestamp"] = timestamp
 
-            # 先计算趋势（用追加前的历史）
-            trend = calc_trend(slug, history)
-
-            # 再追加本次快照
+            trend   = calc_trend(slug, history)
             history = append_snapshot(history, slug, info)
 
             analysis = ai_analyze(info, trend)
@@ -327,7 +318,6 @@ def main():
         full_report = "\n\n---\n\n".join(results)
         send_feishu(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
 
-    # 保存追加后的完整历史
     save_history(history)
 
 main()
