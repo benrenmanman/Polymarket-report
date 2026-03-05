@@ -1,48 +1,25 @@
-name: Polymarket 定时播报
+name: Polymarket Report
 
 on:
-  # 定时触发（UTC 时间）
-  # 以下配置 = 北京时间 每天 09:00 / 15:00 / 21:00
   schedule:
-    - cron: '*/10 * * * *'
-    
-  # 允许在 Actions 页面手动触发（方便测试）
+    - cron: '0,30 * * * *'
   workflow_dispatch:
-
-permissions:
-  contents: write   # ← 加这两行
 
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 10       # 超时保护，防止卡死消耗额度
-
     steps:
-      - name: 📥 拉取代码
-        uses: actions/checkout@v4
-
-      - name: 🐍 配置 Python 环境
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'pip'          # 缓存依赖，加速后续运行
-
-      - name: 📦 安装依赖
-        run: pip install -r requirements.txt
-
-      - name: 🚀 运行播报脚本
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python report.py
         env:
-          FEISHU_WEBHOOK:  ${{ secrets.FEISHU_WEBHOOK }}
           OPENAI_API_KEY:  ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           OPENAI_MODEL:    ${{ secrets.OPENAI_MODEL }}
-          MARKET_SLUGS:    ${{ secrets.MARKET_SLUGS }}
-        run: python report.py
-
-      - name: 💾 提交历史数据
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add history.json
-          git diff --cached --quiet || git commit -m "📊 update history $(date -u '+%Y-%m-%d %H:%M')"
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          FEISHU_WEBHOOK:  ${{ secrets.FEISHU_WEBHOOK }}
+          SLUGS:           ${{ secrets.SLUGS }}
+          SUPABASE_URL:    ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:    ${{ secrets.SUPABASE_KEY }}
