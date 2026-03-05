@@ -14,7 +14,6 @@ SLUGS = os.environ.get("MARKET_SLUGS", "what-price-will-bitcoin-hit-in-2025").sp
 # ── 读完变量之后才能初始化 client ──
 client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
 
-
 # ── 1. 拉取 Polymarket 数据 ───────────────────────────────
 def fetch_market(slug: str) -> dict:
     slug = slug.strip()
@@ -31,7 +30,6 @@ def fetch_market(slug: str) -> dict:
     resp2.raise_for_status()
     data2 = resp2.json()
     return data2[0] if data2 else {}
-
 
 # ── 2. 提取关键字段 ───────────────────────────────────────
 def extract_key_info(raw: dict) -> dict:
@@ -52,7 +50,6 @@ def extract_key_info(raw: dict) -> dict:
         "volume_1wk_M":   round(raw.get("volume1wk", 0) / 1e6, 2),
         "markets":        markets,
     }
-
 
 # ── 3. AI 分析 ────────────────────────────────────────────
 def ai_analyze(info: dict) -> str:
@@ -133,7 +130,6 @@ def send_feishu(text: str):
 
     if result.get("code") != 0 and result.get("StatusCode") != 0:
         raise Exception(f"飞书推送失败：{result}")
-
 
 # ── 5. 主流程 ─────────────────────────────────────────────
 def main():
