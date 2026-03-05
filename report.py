@@ -131,6 +131,58 @@ def send_feishu(text: str):
     if result.get("code") != 0 and result.get("StatusCode") != 0:
         raise Exception(f"飞书推送失败：{result}")
 
+# ── 5. 读取并存储数据 ───────────────────────────────────
+HISTORY_FILE = "history.json"
+
+def load_history() -> dict:
+    """读取上次的历史数据"""
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_history(data: dict):
+    """保存本次数据到历史文件"""
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+# ── 6. 对比历史数据，计算变化趋势 ───────────────────────────────────
+def calc_trend(slug: str, current: dict, history: dict) -> dict:
+    """对比历史数据，计算变化趋势"""
+    trend = {}
+    prev = history.get(slug)
+
+    if not prev:
+        trend["status"] = "首次记录，暂无趋势数据"
+        return trend
+
+    trend["time_diff"] = f"距上次更新：{prev.get('timestamp', '未知')}"
+    trend["changes"] = []
+
+    # 对比每个选项的概率变化
+    curr_outcomes = {o["title"]: o["probability"] for o in current.get("outcomes", [])}
+    prev_outcomes = {o["title"]: o["probability"] for o in prev.get("outcomes", [])}
+
+    for title, curr_prob in curr_outcomes.items():
+        prev_prob = prev_outcomes.get(title, curr_prob)
+        delta = round(curr_prob - prev_prob, 4)
+        arrow = "📈" if delta > 0.01 else ("📉" if delta < -0.01 else "➡️")
+        trend["changes"].append({
+            "option": title,
+            "prev":    f"{prev_prob*100:.1f}%",
+            "current": f"{curr_prob*100:.1f}%",
+            "delta":   f"{delta*100:+.1f}%",
+            "arrow":   arrow
+        })
+
+    # 交易量变化
+    curr_vol = current.get("volume", 0)
+    prev_vol = prev.get("volume", 0)
+    trend["volume_delta"] = f"{curr_vol - prev_vol:+.0f} USDC"
+
+    return trend
+
+
 # ── 5. 主流程 ─────────────────────────────────────────────
 def main():
     messages = []
