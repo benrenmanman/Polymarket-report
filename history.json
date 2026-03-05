@@ -2159,6 +2159,127 @@
           "oneMonthPriceChange": null
         }
       ]
+    },
+    {
+      "timestamp": "2026-03-05 10:09 UTC",
+      "volume": 12387465.624652,
+      "volume24hr": 2236750.5289089996,
+      "markets": [
+        {
+          "id": "1466015",
+          "question": "US x Iran ceasefire by March 31?",
+          "slug": "us-x-iran-ceasefire-by-march-31",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.305,
+            "No": 0.695
+          },
+          "volume": 1705567.244838,
+          "volume24hr": 361074.5186999998,
+          "lastTradePrice": 0.31,
+          "bestBid": 0.3,
+          "bestAsk": 0.31,
+          "oneDayPriceChange": null,
+          "oneWeekPriceChange": null,
+          "oneMonthPriceChange": null
+        },
+        {
+          "id": "1466016",
+          "question": "US x Iran ceasefire by April 30?",
+          "slug": "us-x-iran-ceasefire-by-april-30",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.475,
+            "No": 0.525
+          },
+          "volume": 557484.157675,
+          "volume24hr": 95510.71641899997,
+          "lastTradePrice": 0.48,
+          "bestBid": 0.47,
+          "bestAsk": 0.48,
+          "oneDayPriceChange": null,
+          "oneWeekPriceChange": null,
+          "oneMonthPriceChange": null
+        },
+        {
+          "id": "1466013",
+          "question": "US x Iran ceasefire by March 6?",
+          "slug": "us-x-iran-ceasefire-by-march-6",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.0075,
+            "No": 0.9925
+          },
+          "volume": 4339709.176439,
+          "volume24hr": 1017061.8835339999,
+          "lastTradePrice": 0.008,
+          "bestBid": 0.007,
+          "bestAsk": 0.008,
+          "oneDayPriceChange": null,
+          "oneWeekPriceChange": null,
+          "oneMonthPriceChange": null
+        },
+        {
+          "id": "1466014",
+          "question": "US x Iran ceasefire by March 15?",
+          "slug": "us-x-iran-ceasefire-by-march-15",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.125,
+            "No": 0.875
+          },
+          "volume": 2023619.61433,
+          "volume24hr": 582332.6527659999,
+          "lastTradePrice": 0.13,
+          "bestBid": 0.12,
+          "bestAsk": 0.13,
+          "oneDayPriceChange": null,
+          "oneWeekPriceChange": null,
+          "oneMonthPriceChange": null
+        },
+        {
+          "id": "1484895",
+          "question": "US x Iran ceasefire by June 30?",
+          "slug": "us-x-iran-ceasefire-by-june-30",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.675,
+            "No": 0.325
+          },
+          "volume": 114672.667369,
+          "volume24hr": 72625.45543700001,
+          "lastTradePrice": 0.69,
+          "bestBid": 0.66,
+          "bestAsk": 0.69,
+          "oneDayPriceChange": null,
+          "oneWeekPriceChange": null,
+          "oneMonthPriceChange": null
+        },
+        {
+          "id": "1484894",
+          "question": "US x Iran ceasefire by May 31?",
+          "slug": "us-x-iran-ceasefire-by-may-31",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.645,
+            "No": 0.355
+          },
+          "volume": 152453.667255,
+          "volume24hr": 108145.302053,
+          "lastTradePrice": 0.65,
+          "bestBid": 0.64,
+          "bestAsk": 0.65,
+          "oneDayPriceChange": null,
+          "oneWeekPriceChange": null,
+          "oneMonthPriceChange": null
+        }
+      ]
     }
   ],
   "will-iran-close-the-strait-of-hormuz-by-2027": [
@@ -3308,6 +3429,70 @@
           "lastTradePrice": 0.833,
           "bestBid": 0.833,
           "bestAsk": 0.836,
+          "oneDayPriceChange": -0.035,
+          "oneWeekPriceChange": 0.015,
+          "oneMonthPriceChange": 0.055
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-03-05 10:09 UTC",
+      "volume": 13698399.192113,
+      "volume24hr": 2766292.925695004,
+      "markets": [
+        {
+          "id": "665307",
+          "question": "Will Iran close the Strait of Hormuz before 2027?",
+          "slug": "will-iran-close-the-strait-of-hormuz-by-2027-969-911-654-431-667",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.8555,
+            "No": 0.1445
+          },
+          "volume": 998483.956011,
+          "volume24hr": 97296.34100900001,
+          "lastTradePrice": 0.856,
+          "bestBid": 0.855,
+          "bestAsk": 0.856,
+          "oneDayPriceChange": 0.015,
+          "oneWeekPriceChange": 0.03,
+          "oneMonthPriceChange": 0.085
+        },
+        {
+          "id": "1227361",
+          "question": "Will Iran close the Strait of Hormuz by March 31?",
+          "slug": "will-iran-close-the-strait-of-hormuz-by-march-31",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.795,
+            "No": 0.205
+          },
+          "volume": 11423957.781752,
+          "volume24hr": 2582785.5198780037,
+          "lastTradePrice": 0.79,
+          "bestBid": 0.79,
+          "bestAsk": 0.8,
+          "oneDayPriceChange": 0.03,
+          "oneWeekPriceChange": 0.015,
+          "oneMonthPriceChange": 0.025
+        },
+        {
+          "id": "1227362",
+          "question": "Will Iran close the Strait of Hormuz by June 30?",
+          "slug": "will-iran-close-the-strait-of-hormuz-by-june-30",
+          "active": true,
+          "closed": false,
+          "outcomePrices": {
+            "Yes": 0.833,
+            "No": 0.167
+          },
+          "volume": 982363.540414,
+          "volume24hr": 86211.064808,
+          "lastTradePrice": 0.832,
+          "bestBid": 0.832,
+          "bestAsk": 0.834,
           "oneDayPriceChange": -0.035,
           "oneWeekPriceChange": 0.015,
           "oneMonthPriceChange": 0.055
