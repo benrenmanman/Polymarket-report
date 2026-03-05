@@ -203,7 +203,7 @@ def main():
     # 推送消息
     if results:
         full_report = "\n\n---\n\n".join(results)
-        send_wecom(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
+        send_feishu(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
 
     # 保存历史数据
     save_history(current_snapshot)
