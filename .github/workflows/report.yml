@@ -35,3 +35,11 @@ jobs:
           OPENAI_MODEL:    ${{ secrets.OPENAI_MODEL }}
           MARKET_SLUGS:    ${{ secrets.MARKET_SLUGS }}
         run: python report.py
+
+      - name: 💾 提交历史数据
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add history.json
+          git diff --cached --quiet || git commit -m "📊 update history $(date -u '+%Y-%m-%d %H:%M')"
+          git push
