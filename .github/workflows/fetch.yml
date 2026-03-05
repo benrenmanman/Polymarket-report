@@ -20,6 +20,6 @@ jobs:
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           OPENAI_MODEL:    ${{ secrets.OPENAI_MODEL }}
           FEISHU_WEBHOOK:  ${{ secrets.FEISHU_WEBHOOK }}
-          SLUGS:           ${{ secrets.SLUGS }}
+          MARKET_SLUGS:    ${{ secrets.MARKET_SLUGS }}   # ← 确认这行存在
           SUPABASE_URL:    ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY:    ${{ secrets.SUPABASE_KEY }}
