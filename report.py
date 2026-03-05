@@ -4,8 +4,9 @@ import os
 from datetime import datetime, timezone
 
 # ── 环境变量（从 GitHub Secrets 注入，本地测试时可改为直接赋值）──
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
+OPENAI_API_KEY  = os.environ["OPENAI_API_KEY"]
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://yinli.one")
+FEISHU_WEBHOOK  = os.environ["FEISHU_WEBHOOK"]
 SLUGS = os.environ.get(
     "MARKET_SLUGS",
     "fed-decision-in-october"
@@ -45,10 +46,23 @@ def extract_key_info(raw: dict) -> dict:
 # ── 3. 调用 AI 生成中文摘要 ───────────────────────────────
 def ask_ai(info: dict) -> str:
     from openai import OpenAI
-    client = OpenAI(api_key=OPENAI_API_KEY)
 
-    prompt = f"""
-你是金融市场分析助手。以下是 Polymarket 预测市场的最新数据（volume 单位：百万美元）：
+    client = OpenAI(
+        api_key=OPENAI_API_KEY,
+        base_url=OPENAI_BASE_URL + "/v1",  # 中转 API 通常需要加 /v1
+    )
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",  # 可按需改为 gpt-4o
+        messages=[
+            {
+                "role": "system",
+                "content": "你是金融市场分析助手，请用中文输出简洁播报。"
+            },
+            {
+                "role": "user",
+                "content": f"""
+以下是 Polymarket 预测市场的最新数据（volume 单位：百万美元）：
 
 {json.dumps(info, ensure_ascii=False, indent=2)}
 
@@ -60,11 +74,11 @@ def ask_ai(info: dict) -> str:
 **💰 交易量**：总量 xxM / 近7日 xxM
 **📈 市场情绪**：一句话总结
 """
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=600,
+            }
+        ],
+        temperature=0.7,
     )
+
     return resp.choices[0].message.content.strip()
 
 
