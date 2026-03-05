@@ -12,6 +12,8 @@ Settings→Secrets and variables→Actions→MARKET_SLUGS（Slugs之间逗号分
 ## 更改飞书/企微的Webhook？
 1. 修改report.py中的`send_feishu()`函数
 2. Settings→Secrets and variables→Actions→FEISHU_WEBHOOK（更新webhook）
+## 更改Ai的Prompt？
+修改report.py中的`ai_analyze()`函数
 ## 更改定时发送时间？
 修改report.yml中的函数：
 ```
