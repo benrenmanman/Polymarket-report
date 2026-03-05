@@ -4,18 +4,14 @@ import os
 from datetime import datetime, timezone
 from openai import OpenAI
 
-client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
-print(f"DEBUG client type: {type(client)}")
-print(f"DEBUG base_url: {OPENAI_BASE_URL}")
-print(f"DEBUG model: {OPENAI_MODEL}")
-
-# ── 环境变量 ──────────────────────────────────────────────
+# ── 必须先读环境变量，再初始化 client ──
 FEISHU_WEBHOOK  = os.environ["FEISHU_WEBHOOK"]
 OPENAI_API_KEY  = os.environ["OPENAI_API_KEY"]
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL    = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 SLUGS = os.environ.get("MARKET_SLUGS", "what-price-will-bitcoin-hit-in-2025").split(",")
 
+# ── 读完变量之后才能初始化 client ──
 client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
 
 
