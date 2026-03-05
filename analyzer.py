@@ -5,53 +5,47 @@ from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
 
 def ai_analyze(info: dict, trend: dict) -> str:
-    count       = trend.get("count", 0)
     comparisons = trend.get("comparisons", {})
 
-    if count < 2:
-        trend_block = "首次记录，无历史趋势。"
+    if not comparisons:
+        snapshot_block = "首次记录，无历史数据。"
     else:
-        available   = list(comparisons.keys())
-        trend_block = f"""
-历史快照数：{count} 条，可对比维度：{', '.join(available)}
-{json.dumps(comparisons, ensure_ascii=False, indent=2)}
-"""
+        snapshot_block = json.dumps(comparisons, ensure_ascii=False, indent=2)
 
     prompt = f"""
-你是预测市场播报助手，请基于以下数据生成一条简洁播报卡片，禁止编造数据。
-所有内容（包括市场标题、选项名称）必须翻译为中文输出。
+你是预测市场数据播报助手。
+你的唯一任务是：将以下原始数据翻译为中文并按格式排列输出。
+严禁添加任何主观判断、情绪分析、趋势解读或预测性语言。
 
-【市场数据】
-{json.dumps(info, ensure_ascii=False, indent=2)}
+【各时间节点快照数据】
+{snapshot_block}
 
-【趋势数据】
-{trend_block}
-
-输出格式（严格按此结构，不加多余说明）：
+输出格式（严格按此结构，缺少的时间节点直接省略，不加说明）：
 
 📌 **[市场标题（中文）]**
-🏆 领先：[最高概率选项（中文）] [概率]%
 
-📊 概率
-[选项A（中文）] [概率]% [↑/↓/—][变化幅度，无历史则省略]
-[选项B（中文）] [概率]% [↑/↓/—][变化幅度，无历史则省略]
-（变化超过5%加⚠️）
+| 时间节点 | [选项A（中文）] | [选项B（中文）] | … |
+|----------|----------------|----------------|---|
+| 最新     | [概率]%        | [概率]%        | … |
+| 上次     | [概率]%        | [概率]%        | … |
+| 上周同期 | [概率]%        | [概率]%        | … |
+| 上月同期 | [概率]%        | [概率]%        | … |
 
-💰 交易量：[总量或各维度简述，一行内]
-💡 [市场情绪一句话判断（中文）]
+💰 交易量（最新）：[数值，一行内]
 """
 
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
             {"role": "system", "content": (
-                "你是预测市场播报助手，输出必须全程使用中文，"
-                "包括市场标题和所有选项名称均需翻译为中文。"
-                "每条播报不超过10行，禁止输出任何英文内容。"
+                "你是预测市场数据播报助手。"
+                "只输出数据本身，禁止任何主观判断、情绪词汇、趋势解读。"
+                "所有市场标题和选项名称翻译为中文。"
+                "输出不超过15行。"
             )},
             {"role": "user", "content": prompt}
         ],
-        max_completion_tokens=400,
+        max_completion_tokens=500,
     )
 
     message = response.choices[0].message
