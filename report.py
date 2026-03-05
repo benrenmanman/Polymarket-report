@@ -13,11 +13,26 @@ SLUGS = os.environ.get(
 
 # ── 1. 拉取 Polymarket 数据 ───────────────────────────────
 def fetch_market(slug: str) -> dict:
-    url = f"https://gamma-api.polymarket.com/events?slug={slug.strip()}"
+    slug = slug.strip()
+    
+    # 先试 events 端点
+    url = f"https://gamma-api.polymarket.com/events?slug={slug}"
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    return data[0] if data else {}
+    print(f"events 端点返回：{json.dumps(data, ensure_ascii=False, indent=2)}")
+    
+    if data:
+        return data[0]
+    
+    # 如果空，再试 markets 端点
+    url2 = f"https://gamma-api.polymarket.com/markets?slug={slug}"
+    resp2 = requests.get(url2, timeout=30)
+    resp2.raise_for_status()
+    data2 = resp2.json()
+    print(f"markets 端点返回：{json.dumps(data2, ensure_ascii=False, indent=2)}")
+    
+    return data2[0] if data2 else {}
 
 
 # ── 2. 提取关键字段 ───────────────────────────────────────
