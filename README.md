@@ -10,7 +10,7 @@ Settings→Secrets and variables→Actions→MARKET_SLUGS（Slugs之间逗号分
 1. Settings→Secrets and variables→Actions→OPENAL_API_KEY（更改新API）
 2. Settings→Secrets and variables→Actions→OPENAL_BASE_URL（同步更换base url）
 ## 更改飞书/企微的Webhook？
-1. 修改report.py中的`send_feishu()`函数
+1. 修改report.py中的`send_feishu()`函数，并更改相应函数调用
 2. Settings→Secrets and variables→Actions→FEISHU_WEBHOOK（更新webhook）
 ## 更改Ai的Prompt？
 修改report.py中的`ai_analyze()`函数
