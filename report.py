@@ -77,6 +77,10 @@ def ai_analyze(info: dict) -> str:
 4. 不要输出代码块，直接输出 Markdown 文本
 """
 
+    # ── 防御性检查 ──
+    if not isinstance(client, OpenAI):
+        raise Exception(f"client 类型异常：{type(client)}，请检查 OPENAI_BASE_URL 和 OPENAI_API_KEY")
+
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
@@ -86,6 +90,11 @@ def ai_analyze(info: dict) -> str:
         temperature=0.7,
         max_tokens=800,
     )
+
+    # ── 确认返回类型 ──
+    if not hasattr(response, "choices"):
+        raise Exception(f"OpenAI 返回类型异常：{type(response)}，内容：{response}")
+
     return response.choices[0].message.content.strip()
 
 
