@@ -12,6 +12,10 @@ SLUGS = os.environ.get(
     "us-x-iran-ceasefire-by,us-forces-enter-iran-by,will-iran-name-a-successor-to-khamenei-by"  # 直接在这里维护
 ).split(",")
 
+# 新增 Supabase
+SUPABASE_URL    = os.environ["SUPABASE_URL"]
+SUPABASE_KEY    = os.environ["SUPABASE_KEY"]  # 用 service_role key
+
 # ── 历史快照配置 ──
 HISTORY_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history.json")
 MAX_SNAPSHOTS = 1440
