@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from config   import SLUGS
 from fetcher  import fetch_market
 from analyzer import ai_analyze
@@ -7,9 +7,10 @@ from notifier import send_feishu
 
 
 def main():
-    history   = load_history()
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    results   = []
+    history  = load_history()
+    tz_bj    = timezone(timedelta(hours=8))                              # ← 定义北京时区
+    timestamp = datetime.now(tz_bj).strftime("%Y-%m-%d %H:%M 北京时间")  # ← 替换这行
+    results  = []
 
     for slug in SLUGS:
         slug = slug.strip()
