@@ -1,4 +1,7 @@
 # polymarket-report/
+
+### 该项目可用于将Polymarket中不同赌注的最新进展定时发送至飞书/企微
+
 ## 修改Ai模型？
 Settings→Secrets and variables→Actions→OPENAI_MODEL（默认gpt-4o-mini）
 ## 修改Ploymarket观测市场？
