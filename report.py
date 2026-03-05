@@ -101,36 +101,117 @@ def ai_analyze(info: dict, trend: dict) -> str:
     return response.choices[0].message.content.strip()
 
 # ── 5. 读取并存储数据 ───────────────────────────────────
-HISTORY_FILE = "history.json"
-MAX_SNAPSHOTS = 2016  # 保留最近 2016 条 = 30分钟间隔下约 6 周数据
-
 def load_history() -> dict:
-    """读取完整历史时间轴"""
-    if os.path.exists(HISTORY_FILE):
+    """
+    读取 history.json。
+    文件不存在时返回空字典，结构损坏时打印警告并返回空字典。
+    """
+    if not os.path.exists(HISTORY_FILE):
+        print("📂 history.json 不存在，将创建新文件")
+        return {}
+    try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+            data = json.load(f)
+        print(f"📂 已加载历史数据，共 {len(data)} 个市场")
+        return data
+    except json.JSONDecodeError as e:
+        print(f"⚠️ history.json 解析失败：{e}，将重置为空")
+        return {}
 
-def save_history(history: dict):
-    """保存历史，每个 slug 保留最近 MAX_SNAPSHOTS 条"""
-    for slug in history:
-        if len(history[slug]) > MAX_SNAPSHOTS:
-            history[slug] = history[slug][-MAX_SNAPSHOTS:]
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+# ─────────────────────────────────────────────
+# 2. 历史数据：精简快照构建
+# ─────────────────────────────────────────────
+def build_snapshot(info: dict) -> dict:
+    """
+    从完整 API 数据中提取精简快照，过滤已关闭/归档的子市场。
+    outcomePrices 兼容字符串数组和字典两种格式。
+    """
+    active_markets = [
+        m for m in info.get("markets", [])
+        if not m.get("archived", False) and not m.get("closed", False)
+    ]
 
+    markets_snapshot = []
+    for m in active_markets:
+        # outcomePrices 可能是 JSON 字符串 "[\"0.31\", \"0.69\"]" 或已解析的字典
+        raw_prices = m.get("outcomePrices", "[]")
+        if isinstance(raw_prices, str):
+            try:
+                prices_list = json.loads(raw_prices)
+                outcome_prices = {
+                    "Yes": float(prices_list[0]),
+                    "No":  float(prices_list[1])
+                }
+            except Exception:
+                outcome_prices = {}
+        elif isinstance(raw_prices, dict):
+            outcome_prices = raw_prices
+        else:
+            outcome_prices = {}
+
+        markets_snapshot.append({
+            "id":                  m.get("id", ""),
+            "question":            m.get("question", ""),
+            "slug":                m.get("slug", ""),
+            "active":              m.get("active", False),
+            "closed":              m.get("closed", False),
+            "outcomePrices":       outcome_prices,
+            "volume":              m.get("volumeNum",      m.get("volume", 0)),
+            "volume24hr":          m.get("volume24hr",     0),
+            "lastTradePrice":      m.get("lastTradePrice", 0),
+            "bestBid":             m.get("bestBid",        0),
+            "bestAsk":             m.get("bestAsk",        0),
+            "oneDayPriceChange":   m.get("oneDayPriceChange",   None),
+            "oneWeekPriceChange":  m.get("oneWeekPriceChange",  None),
+            "oneMonthPriceChange": m.get("oneMonthPriceChange", None),
+        })
+
+    return {
+        "timestamp":  info.get("timestamp", ""),
+        "volume":     info.get("volume",     0),
+        "volume24hr": info.get("volume24hr", 0),
+        "markets":    markets_snapshot,
+    }
+
+# ─────────────────────────────────────────────
+# 3. 历史数据：追加快照
+# ─────────────────────────────────────────────
 def append_snapshot(history: dict, slug: str, info: dict) -> dict:
-    """把本次数据追加到该 slug 的历史数组"""
+    """
+    把本次精简快照追加到 history[slug] 数组末尾。
+    超过 MAX_SNAPSHOTS 时自动裁剪最旧的记录。
+    """
     if slug not in history:
         history[slug] = []
-    
-    snapshot = {
-        "timestamp": info["timestamp"],
-        "outcomes":  info.get("outcomes", []),
-        "volume":    info.get("volume", 0),
-    }
-    history[slug].append(snapshot)
+
+    history[slug].append(build_snapshot(info))
+
+    if len(history[slug]) > MAX_SNAPSHOTS:
+        history[slug] = history[slug][-MAX_SNAPSHOTS:]
+        print(f"✂️  {slug} 历史超过 {MAX_SNAPSHOTS} 条，已裁剪旧数据")
+
     return history
+
+# ─────────────────────────────────────────────
+# 4. 历史数据：保存
+# ─────────────────────────────────────────────
+def save_history(history: dict):
+    """
+    将完整历史写回 history.json。
+    先写临时文件再原子替换，防止写入中断导致文件损坏。
+    """
+    tmp_file = HISTORY_FILE + ".tmp"
+    try:
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_file, HISTORY_FILE)
+        total = sum(len(v) for v in history.values())
+        print(f"💾 history.json 已保存，共 {len(history)} 个市场 / {total} 条快照")
+    except Exception as e:
+        print(f"❌ 保存 history.json 失败：{e}")
+        if os.path.exists(tmp_file):
+            os.remove(tmp_file)
+
 
 # ── 6. 对比历史数据，计算变化趋势 ───────────────────────────────────
 def calc_trend(slug: str, history: dict) -> dict:
