@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from config   import SLUGS
 from analyzer import ai_analyze
 from db       import get_snapshot_at, get_latest_snapshot
-from notifier import send_feishu
+from notifier import send_wecom   # ← 替换 send_feishu
 
 
 def build_trend(slug: str, tz_bj) -> dict:
@@ -61,7 +61,7 @@ def main():
 
     if results:
         full_report = "\n\n---\n\n".join(results)
-        send_feishu(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
+        send_wecom(f"📊 **Polymarket 市场播报** `{timestamp}`\n\n{full_report}")
 
 
 main()
