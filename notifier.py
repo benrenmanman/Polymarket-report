@@ -1,10 +1,99 @@
+import time
 import requests
 import base64
 import hashlib
-from config import WECOM_WEBHOOK   # 原有配置，保持不动
+from config import WECOM_WEBHOOK, CORP_ID, CORP_SECRET, AGENT_ID
 
 # template_card horizontal_content_list 最多支持 6 条
 _CARD_MAX_ITEMS = 6
+
+# ── access_token 本地缓存（进程内有效）──
+_token_cache: dict = {"token": "", "expires_at": 0.0}
+
+WECOM_API = "https://qyapi.weixin.qq.com/cgi-bin"
+
+
+# ──────────────────────────────────────────
+# 企业微信应用消息 API 辅助函数
+# ──────────────────────────────────────────
+def get_access_token() -> str:
+    """获取企业微信 access_token，自动缓存（提前 60s 刷新）。"""
+    if _token_cache["token"] and time.time() < _token_cache["expires_at"]:
+        return _token_cache["token"]
+    resp = requests.get(
+        f"{WECOM_API}/gettoken",
+        params={"corpid": CORP_ID, "corpsecret": CORP_SECRET},
+        timeout=10,
+    )
+    data = resp.json()
+    if data.get("errcode", 0) != 0:
+        raise RuntimeError(f"get_access_token 失败: {data}")
+    _token_cache["token"]      = data["access_token"]
+    _token_cache["expires_at"] = time.time() + data["expires_in"] - 60
+    return _token_cache["token"]
+
+
+def upload_image_for_mpnews(image_bytes: bytes) -> str:
+    """
+    将 PNG 图片上传至企业微信，返回可嵌入 mpnews HTML 内容的永久图片 URL。
+    接口：POST /media/uploadimg
+    """
+    token = get_access_token()
+    resp = requests.post(
+        f"{WECOM_API}/media/uploadimg",
+        params={"access_token": token},
+        files={"media": ("chart.png", image_bytes, "image/png")},
+        timeout=20,
+    )
+    data = resp.json()
+    if data.get("errcode", 0) != 0:
+        raise RuntimeError(f"uploadimg 失败: {data}")
+    return data["url"]
+
+
+def upload_media_thumb(image_bytes: bytes) -> str:
+    """
+    将 PNG 图片作为临时素材上传，返回 media_id（用作 mpnews 缩略图）。
+    接口：POST /media/upload?type=image
+    """
+    token = get_access_token()
+    resp = requests.post(
+        f"{WECOM_API}/media/upload",
+        params={"access_token": token, "type": "image"},
+        files={"media": ("thumb.png", image_bytes, "image/png")},
+        timeout=20,
+    )
+    data = resp.json()
+    if data.get("errcode", 0) != 0:
+        raise RuntimeError(f"upload_media 失败: {data}")
+    return data["media_id"]
+
+
+def send_mpnews(articles: list, touser: str = "@all"):
+    """
+    通过企业微信应用消息接口发送 mpnews 图文消息。
+    articles 格式：
+      [{"title":..., "thumb_media_id":..., "author":...,
+        "content":..., "digest":..., "content_source_url":...}]
+    接口：POST /message/send
+    """
+    token = get_access_token()
+    payload = {
+        "touser":   touser,
+        "msgtype":  "mpnews",
+        "agentid":  AGENT_ID,
+        "mpnews":   {"articles": articles},
+        "enable_duplicate_check": 0,
+    }
+    resp = requests.post(
+        f"{WECOM_API}/message/send",
+        params={"access_token": token},
+        json=payload,
+        timeout=15,
+    )
+    data = resp.json()
+    if data.get("errcode", 0) != 0:
+        raise RuntimeError(f"send_mpnews 失败: {data}")
 
 
 def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
