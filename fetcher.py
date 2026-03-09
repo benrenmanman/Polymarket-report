@@ -165,7 +165,7 @@ def fetch_price_history(token_id: str, mode: str = "1min") -> pd.DataFrame:
           .reset_index(drop=True)
     )
 
-    cutoff_days = 1 if mode == "1min" else 7
+    cutoff_days = 1 if mode == "1min" else 5
     cutoff = df["datetime"].max() - pd.Timedelta(days=cutoff_days)
     df = df[df["datetime"] >= cutoff].reset_index(drop=True)
 

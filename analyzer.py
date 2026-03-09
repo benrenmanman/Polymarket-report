@@ -195,13 +195,21 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     在已有的两个 Axes 上绘制高频走势图（上：价格曲线，下：变动柱状）。
     供 plot_highfreq 和 plot_all_highfreq_combined 共用。
     """
-    mode_label = "1分钟粒度 · 近1天" if mode == "1min" else "5分钟粒度 · 近1周"
+    import datetime as _dt
+
+    mode_label = "1分钟粒度 · 近1天" if mode == "1min" else "5分钟粒度 · 近5天"
     fmt = "%m-%d %H:%M" if mode == "1min" else "%m-%d"
 
+    # 将 tz-aware datetime 转为 tz-naive，避免 matplotlib 兼容性问题
+    if hasattr(df["datetime"].dtype, "tz") and df["datetime"].dt.tz is not None:
+        ts = df["datetime"].dt.tz_convert("UTC").dt.tz_localize(None)
+    else:
+        ts = df["datetime"]
+
     # ── 上图：价格走势 ──
-    ax1.plot(df["datetime"], df["price"],
+    ax1.plot(ts, df["price"],
              color="#4f8ef7", linewidth=1.2, label="YES 概率")
-    ax1.fill_between(df["datetime"], df["price"], alpha=0.10, color="#4f8ef7")
+    ax1.fill_between(ts, df["price"], alpha=0.10, color="#4f8ef7")
     ax1.set_ylim(
         max(0, df["price"].min() - 0.05),
         min(1, df["price"].max() + 0.05),
@@ -212,17 +220,18 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     ax1.legend(fontsize=9)
     ax1.grid(True, alpha=0.3)
     ax1.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
-    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=30)
+    ax1.tick_params(axis="x", rotation=30)
 
     # ── 下图：价格变动柱状 ──
     diff  = df["price"].diff()
-    bar_w = pd.Timedelta(minutes=1.5 if mode == "1min" else 7)
+    # 用 datetime.timedelta 而非 pd.Timedelta，避免 matplotlib 将其解析为纳秒
+    bar_w = _dt.timedelta(minutes=1.5 if mode == "1min" else 7)
     colors = ["#2ecc71" if (pd.notna(v) and v >= 0) else "#e74c3c" for v in diff]
-    ax2.bar(df["datetime"], diff, color=colors, width=bar_w, alpha=0.75)
+    ax2.bar(ts, diff, color=colors, width=bar_w, alpha=0.75)
     ax2.axhline(0, color="gray", linewidth=0.8)
     ax2.set_ylabel("变动量")
     ax2.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
-    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=30)
+    ax2.tick_params(axis="x", rotation=30)
     ax2.grid(True, alpha=0.3)
 
 

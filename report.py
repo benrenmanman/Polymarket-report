@@ -73,19 +73,19 @@ def _compute_price_changes(df_1min, df_5min) -> dict:
     p30m = _lookup(df_1min, pd.Timedelta(minutes=30))
     p1h  = _lookup(df_1min, pd.Timedelta(hours=1))
     p1d  = _lookup(df_5min, pd.Timedelta(days=1))
-    p7d  = _lookup(df_5min, pd.Timedelta(days=7))
+    p5d  = _lookup(df_5min, pd.Timedelta(days=5))
 
     return {
         "30m": (current - p30m) if p30m is not None else None,
         "1h":  (current - p1h)  if p1h  is not None else None,
         "1d":  (current - p1d)  if p1d  is not None else None,
-        "7d":  (current - p7d)  if p7d  is not None else None,
+        "5d":  (current - p5d)  if p5d  is not None else None,
     }
 
 
 def _format_changes(changes: dict) -> str:
     """将变化字典格式化为紧凑的中文字符串，供概览使用。"""
-    labels = [("30m", "30分"), ("1h", "1时"), ("1d", "1日"), ("7d", "7日")]
+    labels = [("30m", "30分"), ("1h", "1时"), ("1d", "1日"), ("5d", "5日")]
     parts = []
     for key, label in labels:
         v = changes.get(key)
