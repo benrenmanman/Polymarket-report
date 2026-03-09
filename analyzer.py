@@ -171,7 +171,7 @@ def analyze_highfreq(question: str, summary: dict) -> str:
     if not summary:
         return "暂无数据，无法解读。"
 
-    mode_label = "1分钟粒度（近1天）" if summary["mode"] == "1min" else "5分钟粒度（近1周）"
+    mode_label = "1分钟粒度（近1天）" if summary["mode"] == "1min" else "1小时粒度（近30天）"
     prompt = (
         f"你是一个预测市场分析师。以下是 Polymarket 市场「{question}」的{mode_label}价格统计摘要，"
         "请用中文给出简洁的走势解读（150字以内），重点关注：\n"
@@ -197,7 +197,7 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     """
     import datetime as _dt
 
-    mode_label = "1分钟粒度 · 近1天" if mode == "1min" else "5分钟粒度 · 近5天"
+    mode_label = "1分钟粒度 · 近1天" if mode == "1min" else "1小时粒度 · 近30天"
     fmt = "%m-%d %H:%M" if mode == "1min" else "%m-%d"
 
     # 将 tz-aware datetime 转为 tz-naive，避免 matplotlib 兼容性问题
@@ -225,7 +225,7 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     # ── 下图：价格变动柱状 ──
     diff  = df["price"].diff()
     # 用 datetime.timedelta 而非 pd.Timedelta，避免 matplotlib 将其解析为纳秒
-    bar_w = _dt.timedelta(minutes=1.5 if mode == "1min" else 7)
+    bar_w = _dt.timedelta(minutes=1.5 if mode == "1min" else 90)
     colors = ["#2ecc71" if (pd.notna(v) and v >= 0) else "#e74c3c" for v in diff]
     ax2.bar(ts, diff, color=colors, width=bar_w, alpha=0.75)
     ax2.axhline(0, color="gray", linewidth=0.8)
@@ -261,7 +261,7 @@ def plot_all_highfreq_combined(entries: list) -> bytes:
     将多个市场、多个粒度的走势图合并为一张从上到下排列的长图。
 
     entries 格式（与 _collect_all_highfreq_data 返回值一致）：
-      [{"question": str, "modes": {"1min": {"df": df, ...}, "5min": {...}}}, ...]
+      [{"question": str, "modes": {"1min": {"df": df, ...}, "1hour": {...}}}, ...]
 
     每个 (question, mode) 组合占两行（价格 + 变动），图表从上到下依次排列。
     返回 PNG bytes；若无任何有效数据则返回 b""。
@@ -269,7 +269,7 @@ def plot_all_highfreq_combined(entries: list) -> bytes:
     # 收集有效的 (question, mode, df) 三元组
     panels = []
     for entry in entries:
-        for mode in ["1min", "5min"]:
+        for mode in ["1min", "1hour"]:
             data = entry["modes"].get(mode)
             if data and data.get("df") is not None and not data["df"].empty:
                 panels.append((entry["question"], mode, data["df"]))

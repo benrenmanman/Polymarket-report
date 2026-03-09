@@ -117,18 +117,18 @@ def fetch_markets_batch(slugs: list) -> dict:
 
 def fetch_price_history(token_id: str, mode: str = "1min") -> pd.DataFrame:
     """
-    拉取高频历史价格数据。
+    拉取历史价格数据。
     mode:
-      "1min" → fidelity=1, interval=1d（近1天，约1440条）
-      "5min" → fidelity=5, interval=1w（近1周，约2016条）
+      "1min"  → fidelity=1,  interval=1d（近1天，约1440条）
+      "1hour" → fidelity=60, interval=1m（近1月，约720条）
     返回 DataFrame，列：timestamp(int), price(float), datetime(UTC)
     """
     mode_config = {
-        "1min": {"fidelity": 1,  "intervals": ["1d"]},
-        "5min": {"fidelity": 5,  "intervals": ["1d", "1w"]},
+        "1min":  {"fidelity": 1,  "intervals": ["1d"]},
+        "1hour": {"fidelity": 60, "intervals": ["1m"]},
     }
     if mode not in mode_config:
-        raise ValueError(f"mode 须为 '1min' 或 '5min'，当前传入: {mode}")
+        raise ValueError(f"mode 须为 '1min' 或 '1hour'，当前传入: {mode}")
 
     cfg       = mode_config[mode]
     fidelity  = cfg["fidelity"]
@@ -165,7 +165,7 @@ def fetch_price_history(token_id: str, mode: str = "1min") -> pd.DataFrame:
           .reset_index(drop=True)
     )
 
-    cutoff_days = 1 if mode == "1min" else 5
+    cutoff_days = 1 if mode == "1min" else 30
     cutoff = df["datetime"].max() - pd.Timedelta(days=cutoff_days)
     df = df[df["datetime"] >= cutoff].reset_index(drop=True)
 
