@@ -1,9 +1,40 @@
 import requests
 import pandas as pd
 import time
+from datetime import datetime, timezone
 
 CLOB_API  = "https://clob.polymarket.com"
 GAMMA_API = "https://gamma-api.polymarket.com"
+
+
+def _is_active_market(m: dict) -> bool:
+    """
+    过滤条件（联合多字段，兼容字段缺失情况）：
+      - active 为 True（或字段不存在）
+      - closed 为 False（或字段不存在）
+      - archived 为 False（或字段不存在）
+      - endDateIso / end_date_iso 未过期（如字段存在）
+    """
+    if not m.get("active", True):
+        return False
+    if m.get("closed", False):
+        return False
+    if m.get("archived", False):
+        return False
+
+    # 检查结束时间（兼容两种字段名）
+    end_date = m.get("endDateIso") or m.get("end_date_iso")
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(
+                end_date.replace("Z", "+00:00")
+            )
+            if end_dt < datetime.now(timezone.utc):
+                return False
+        except Exception:
+            pass   # 解析失败则不过滤
+
+    return True
 
 
 def fetch_market(slug: str) -> dict | list:
@@ -14,7 +45,7 @@ def fetch_market(slug: str) -> dict | list:
       Level 3: /events?slug=         → 通过事件查子市场列表
     返回：
       dict  → 单市场
-      list  → 多选项市场的子市场列表（每个元素是 dict）
+      list  → 多选项市场的子市场列表（每个元素是 dict，已过滤历史/关闭市场）
     """
     slug = slug.strip()
     print(f"[fetcher] fetch_market slug={repr(slug)}")
@@ -43,9 +74,13 @@ def fetch_market(slug: str) -> dict | list:
         )
         resp.raise_for_status()
         data = resp.json()
-        print(f"[fetcher] L2 返回条数: {len(data) if isinstance(data, list) else 0}")
+        print(f"[fetcher] L2 返回条数（过滤前）: {len(data) if isinstance(data, list) else 0}")
         if data:
-            return data if isinstance(data, list) else [data]
+            markets = data if isinstance(data, list) else [data]
+            markets = [m for m in markets if _is_active_market(m)]
+            print(f"[fetcher] L2 返回条数（过滤后）: {len(markets)}")
+            if markets:
+                return markets
     except Exception as e:
         print(f"[fetcher] L2 失败: {e}")
 
@@ -60,10 +95,24 @@ def fetch_market(slug: str) -> dict | list:
         events = resp.json()
         print(f"[fetcher] L3 返回条数: {len(events) if isinstance(events, list) else 1}")
         if events:
-            event = events[0] if isinstance(events, list) else events
+            event   = events[0] if isinstance(events, list) else events
             markets = event.get("markets", [])
+            print(f"[fetcher] L3 子市场数量（过滤前）: {len(markets)}")
+
+            # ── debug：打印第一个子市场的字段，方便排查 ──
             if markets:
-                return markets   # list of dicts
+                sample = markets[0]
+                print(f"[fetcher] L3 样本字段: {list(sample.keys())}")
+                print(f"[fetcher] L3 样本 active={sample.get('active')} "
+                      f"closed={sample.get('closed')} "
+                      f"archived={sample.get('archived')} "
+                      f"endDateIso={sample.get('endDateIso')}")
+
+            markets = [m for m in markets if _is_active_market(m)]
+            print(f"[fetcher] L3 子市场数量（过滤后）: {len(markets)}")
+
+            if markets:
+                return markets
     except Exception as e:
         print(f"[fetcher] L3 失败: {e}")
 
