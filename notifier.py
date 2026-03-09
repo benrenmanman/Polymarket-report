@@ -99,27 +99,31 @@ def send_mpnews(articles: list, touser: str = "@all"):
 def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
     """
     在所有 slug 详细报告前发送一条汇总消息。
-    优先使用企业微信模板卡片（text_notice），超过 6 条或失败时降级为 Markdown。
+    优先使用企业微信模板卡片（text_notice），条目超出上限或失败时降级为 Markdown。
 
     slug_data: [{"slug": ..., "question": ..., "yes_price": float|None,
-                 "is_multi": bool, "sub_count": int}, ...]
+                 "is_multi": bool, "sub_count": int,
+                 "sub_options": [{"question":..., "yes_price":...}, ...]}, ...]
     overall_analysis : AI 整体解读文字
     timestamp        : 更新时间字符串，如 "2024-01-01 12:00 UTC"
     """
-    n = len(slug_data)
-
-    def _price_str(d: dict) -> str:
-        if d.get("is_multi"):
-            return f"多选项 ({d.get('sub_count', 0)} 个)"
-        yp = d.get("yes_price")
+    def _price_str(yp) -> str:
         return f"{yp:.1%}" if yp is not None else "N/A"
 
-    # ── 尝试 template_card（≤6 条时）──
-    if n <= _CARD_MAX_ITEMS:
-        items = [
-            {"keyname": d["question"][:24], "value": _price_str(d)}
-            for d in slug_data
-        ]
+    # ── 将 slug_data 展开为平铺的 (label, value) 列表 ──
+    flat_items: list[tuple[str, str]] = []
+    for d in slug_data:
+        if d.get("is_multi") and d.get("sub_options"):
+            for opt in d["sub_options"]:
+                flat_items.append((opt["question"][:24], _price_str(opt.get("yes_price"))))
+        else:
+            flat_items.append((d["question"][:24], _price_str(d.get("yes_price"))))
+
+    n_slugs = len(slug_data)
+
+    # ── 尝试 template_card（展开后条目 ≤ 6 时）──
+    if len(flat_items) <= _CARD_MAX_ITEMS:
+        items = [{"keyname": label, "value": value} for label, value in flat_items]
         payload = {
             "msgtype": "template_card",
             "template_card": {
@@ -133,7 +137,7 @@ def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
                     "desc": timestamp,
                 },
                 "emphasis_content": {
-                    "title": str(n),
+                    "title": str(n_slugs),
                     "desc": "个监控市场",
                 },
                 "horizontal_content_list": items,
@@ -148,10 +152,15 @@ def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
         except Exception:
             pass   # 降级到 Markdown
 
-    # ── 降级：Markdown ──
+    # ── 降级：Markdown，多选项展开为缩进子项 ──
     lines = ["## 📊 Polymarket 市场概览", f"> 更新时间：{timestamp}", ""]
     for d in slug_data:
-        lines.append(f"- **{d['question']}**：{_price_str(d)}")
+        if d.get("is_multi") and d.get("sub_options"):
+            lines.append(f"- **{d['slug']}**（{d.get('sub_count', 0)} 个选项）")
+            for opt in d["sub_options"]:
+                lines.append(f"  - {opt['question']}：{_price_str(opt.get('yes_price'))}")
+        else:
+            lines.append(f"- **{d['question']}**：{_price_str(d.get('yes_price'))}")
     lines += ["", "**整体市场解读：**", overall_analysis]
     send_markdown("\n".join(lines))
 

@@ -75,30 +75,39 @@ def run_slugs_summary(slugs: list):
         try:
             market = fetch_market(slug)
             if isinstance(market, list):
-                # 多选项市场：取第一个子市场的 YES 价格作为代表
-                m        = market[0]
-                is_multi = True
-                sub_cnt  = len(market)
+                m           = market[0]
+                is_multi    = True
+                sub_cnt     = len(market)
+                sub_options = [
+                    {
+                        "question":  sub.get("question", ""),
+                        "yes_price": _extract_yes_price(sub),
+                    }
+                    for sub in market
+                ]
             else:
-                m        = market
-                is_multi = False
-                sub_cnt  = 1
+                m           = market
+                is_multi    = False
+                sub_cnt     = 1
+                sub_options = []
 
             slug_data.append({
-                "slug":      slug,
-                "question":  m.get("question", slug),
-                "yes_price": _extract_yes_price(m),
-                "is_multi":  is_multi,
-                "sub_count": sub_cnt,
+                "slug":        slug,
+                "question":    m.get("question", slug),
+                "yes_price":   _extract_yes_price(m),
+                "is_multi":    is_multi,
+                "sub_count":   sub_cnt,
+                "sub_options": sub_options,
             })
         except Exception as e:
             print(f"[report] 汇总: {slug} 获取失败: {e}")
             slug_data.append({
-                "slug":      slug,
-                "question":  slug,
-                "yes_price": None,
-                "is_multi":  False,
-                "sub_count": 0,
+                "slug":        slug,
+                "question":    slug,
+                "yes_price":   None,
+                "is_multi":    False,
+                "sub_count":   0,
+                "sub_options": [],
             })
 
     overall = analyze_all_slugs(slug_data)
@@ -205,13 +214,26 @@ def build_and_send_mpnews_report(slugs: list):
     for slug in slugs:
         try:
             market = fetch_market(slug)
-            m      = market[0] if isinstance(market, list) else market
+            if isinstance(market, list):
+                m           = market[0]
+                is_multi    = True
+                sub_cnt     = len(market)
+                sub_options = [
+                    {"question": sub.get("question", ""), "yes_price": _extract_yes_price(sub)}
+                    for sub in market
+                ]
+            else:
+                m           = market
+                is_multi    = False
+                sub_cnt     = 1
+                sub_options = []
             slug_data.append({
-                "slug":      slug,
-                "question":  m.get("question", slug),
-                "yes_price": _extract_yes_price(m),
-                "is_multi":  isinstance(market, list),
-                "sub_count": len(market) if isinstance(market, list) else 1,
+                "slug":        slug,
+                "question":    m.get("question", slug),
+                "yes_price":   _extract_yes_price(m),
+                "is_multi":    is_multi,
+                "sub_count":   sub_cnt,
+                "sub_options": sub_options,
             })
         except Exception as e:
             print(f"[report] mpnews 快照: {slug} 失败: {e}")
@@ -236,9 +258,21 @@ def build_and_send_mpnews_report(slugs: list):
         "<tr><th>市场</th><th>当前概率（YES）</th></tr>",
     ]
     for d in slug_data:
-        html_parts.append(
-            f"<tr><td>{d['question']}</td><td>{_price_str(d)}</td></tr>"
-        )
+        if d.get("is_multi") and d.get("sub_options"):
+            # 多选项市场：展开每个子选项
+            sub_rows = "".join(
+                f"<li>{opt['question']}："
+                f"{'%s' % f\"{opt['yes_price']:.1%}\" if opt.get('yes_price') is not None else 'N/A'}"
+                f"</li>"
+                for opt in d["sub_options"]
+            )
+            html_parts.append(
+                f"<tr><td><ul>{sub_rows}</ul></td><td>—</td></tr>"
+            )
+        else:
+            html_parts.append(
+                f"<tr><td>{d['question']}</td><td>{_price_str(d)}</td></tr>"
+            )
     html_parts += [
         "</table>",
         f"<p><b>整体解读：</b>{overall}</p>",
