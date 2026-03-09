@@ -1,5 +1,6 @@
 import json
 import io
+import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")           # 无头环境，不弹窗
@@ -305,6 +306,101 @@ def plot_all_highfreq_combined(entries: list) -> bytes:
     plt.tight_layout()
     buf = io.BytesIO()
     plt.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+
+def plot_changes_heatmap(flat_entries: list) -> bytes:
+    """
+    绘制所有市场价格变化热力图。
+
+    flat_entries 格式（由 report._flatten_for_heatmap() 生成）：
+      [{"name": str, "changes": {"5m": float|None, "30m": ..., ...}}, ...]
+
+    行 = 市场/子选项，列 = 时间维度（5分→30日）。
+    绿色=上涨，红色=下跌，颜色深浅表示幅度大小。
+    返回 PNG bytes；无有效数据时返回 b""。
+    """
+    if not flat_entries:
+        return b""
+
+    periods   = [("5m",  "5分"), ("30m", "30分"), ("1h",  "1时"),
+                 ("5d",  "5日"), ("14d", "14日"), ("30d", "30日")]
+    n_entries = len(flat_entries)
+    n_periods = len(periods)
+
+    # ── 构建数据矩阵（行=市场，列=时段）──
+    data   = np.full((n_entries, n_periods), np.nan)
+    labels = [["" for _ in range(n_periods)] for _ in range(n_entries)]
+
+    for i, entry in enumerate(flat_entries):
+        changes = entry.get("changes", {})
+        for j, (key, _) in enumerate(periods):
+            v = changes.get(key)
+            if v is not None:
+                data[i][j]   = v
+                labels[i][j] = f"{v:+.1%}"
+
+    # ── 颜色范围：关于 0 对称，至少 ±2% ──
+    valid = data[~np.isnan(data)]
+    vmax  = float(np.abs(valid).max()) if len(valid) else 0.02
+    vmax  = max(vmax, 0.02)
+
+    # ── 绘图 ──
+    fig_h = max(3.0, n_entries * 0.6 + 1.5)
+    fig, ax = plt.subplots(figsize=(10, fig_h))
+
+    masked = np.ma.masked_invalid(data)
+    cmap   = plt.cm.RdYlGn.copy()
+    cmap.set_bad(color="#dddddd")           # NaN → 灰色
+
+    im = ax.imshow(masked, cmap=cmap, aspect="auto",
+                   vmin=-vmax, vmax=vmax, interpolation="nearest")
+
+    # X 轴：时段标签
+    ax.set_xticks(range(n_periods))
+    ax.set_xticklabels([lbl for _, lbl in periods], fontsize=10, fontweight="bold")
+    ax.xaxis.set_tick_params(length=0)
+
+    # Y 轴：市场名称
+    market_names = [e["name"] for e in flat_entries]
+    ax.set_yticks(range(n_entries))
+    ax.set_yticklabels(market_names, fontsize=9)
+    ax.yaxis.set_tick_params(length=0)
+
+    # 单元格文字注释
+    for i in range(n_entries):
+        for j in range(n_periods):
+            txt = labels[i][j] or "—"
+            # 深色背景用白字，浅色用黑字
+            cell_val = data[i][j]
+            fg = "white" if (not np.isnan(cell_val) and abs(cell_val) > vmax * 0.55) else "black"
+            ax.text(j, i, txt, ha="center", va="center",
+                    fontsize=9, color=fg, fontweight="bold")
+
+    # 网格线（列之间）
+    for x in np.arange(-0.5, n_periods, 1):
+        ax.axvline(x, color="white", linewidth=1.5)
+    for y in np.arange(-0.5, n_entries, 1):
+        ax.axhline(y, color="white", linewidth=1.5)
+
+    # 分隔短期/长期（1时 和 5日 之间）
+    ax.axvline(2.5, color="white", linewidth=4)
+
+    # 色条
+    cbar = plt.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_label("变化幅度", fontsize=9)
+    cbar.ax.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda y, _: f"{y:+.0%}")
+    )
+
+    ax.set_title("Polymarket 价格变化热力图（绿涨红跌）",
+                 fontsize=11, fontweight="bold", pad=10)
+
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=140, bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
     return buf.read()

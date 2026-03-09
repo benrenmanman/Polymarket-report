@@ -12,6 +12,7 @@ from analyzer import (
     analyze_highfreq,
     plot_highfreq,
     plot_all_highfreq_combined,
+    plot_changes_heatmap,
 )
 from notifier import (
     send_text,
@@ -88,17 +89,39 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
 
 
 def _format_changes(changes: dict) -> str:
-    """将变化字典格式化为紧凑的中文字符串，供概览使用。"""
-    labels = [("5m", "5分"), ("30m", "30分"), ("1h", "1时"), ("5d", "5日"), ("14d", "14日"), ("30d", "30日")]
-    parts = []
-    for key, label in labels:
+    """将变化字典格式化为短期|长期分段的中文字符串，供概览使用。"""
+    def _one(key, label):
         v = changes.get(key)
         if v is None:
-            parts.append(f"—({label})")
+            return f"{label}:—"
+        arrow = "↑" if v >= 0 else "↓"
+        return f"{label}:{arrow}{v:+.1%}"
+
+    short = [_one(k, l) for k, l in [("5m", "5分"), ("30m", "30分"), ("1h", "1时")]]
+    long_ = [_one(k, l) for k, l in [("5d", "5日"), ("14d", "14日"), ("30d", "30日")]]
+    return "  ".join(short) + "   |   " + "  ".join(long_)
+
+
+def _flatten_for_heatmap(slug_data: list) -> list:
+    """
+    将 slug_data 展开为热力图所需的扁平列表。
+    每项：{"name": str（截取前16字）, "changes": dict}
+    多选项市场逐个子选项展开。
+    """
+    flat = []
+    for d in slug_data:
+        if d.get("is_multi") and d.get("sub_options"):
+            for opt in d["sub_options"]:
+                flat.append({
+                    "name":    opt.get("question", "?")[:16],
+                    "changes": opt.get("changes", {}),
+                })
         else:
-            arrow = "↑" if v >= 0 else "↓"
-            parts.append(f"{arrow}{v:+.1%}({label})")
-    return "  ".join(parts)
+            flat.append({
+                "name":    d.get("question", "?")[:16],
+                "changes": d.get("changes", {}),
+            })
+    return flat
 
 
 def _apply_translations(slug_data: list) -> None:
@@ -525,7 +548,18 @@ def run_all_highfreq_reports(slugs: list):
         send_text(f"⚠️ 汇总消息发送失败: {e}")
         print(f"[report] 汇总失败: {e}")
 
-    # 合并所有图表为一张长图发送
+    # ── 热力图：价格变化可视化 ──
+    try:
+        flat     = _flatten_for_heatmap(slug_data)
+        heatmap  = plot_changes_heatmap(flat)
+        if heatmap:
+            from notifier import send_image
+            send_image(heatmap)
+            print("[report] 热力图已发送")
+    except Exception as e:
+        print(f"[report] 热力图发送失败: {e}")
+
+    # ── 合并走势长图 ──
     try:
         combined_chart = plot_all_highfreq_combined(all_entries)
         if combined_chart:

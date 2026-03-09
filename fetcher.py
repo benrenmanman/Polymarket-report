@@ -125,7 +125,7 @@ def fetch_price_history(token_id: str, mode: str = "1min") -> pd.DataFrame:
     """
     mode_config = {
         "1min":  {"fidelity": 1,    "intervals": ["1d"]},
-        "1day":  {"fidelity": 1440, "intervals": ["1m"]},
+        "1day":  {"fidelity": 1440, "intervals": ["max"]},   # 全量日线，截取近30天
     }
     if mode not in mode_config:
         raise ValueError(f"mode 须为 '1min' 或 '1day'，当前传入: {mode}")
