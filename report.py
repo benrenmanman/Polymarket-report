@@ -5,6 +5,7 @@ from fetcher import fetch_market
 from analyzer import (
     analyze_snapshot,
     analyze_all_slugs,
+    translate_to_chinese,
     summarize_highfreq,
     analyze_highfreq,
     plot_highfreq,
@@ -44,6 +45,31 @@ def _extract_token_id(market: dict) -> str | None:
     return token_ids[0] if token_ids else None
 
 
+def _apply_translations(slug_data: list) -> None:
+    """
+    收集 slug_data 中所有英文 question（含 sub_options），
+    批量翻译为中文并原地更新。
+    """
+    # 按顺序收集所有待翻译文本，同时记录回填路径
+    texts: list[str] = []
+    refs:  list      = []   # ("question", idx) 或 ("sub_option", idx, j)
+
+    for i, d in enumerate(slug_data):
+        texts.append(d["question"])
+        refs.append(("question", i))
+        for j, opt in enumerate(d.get("sub_options", [])):
+            texts.append(opt["question"])
+            refs.append(("sub_option", i, j))
+
+    translated = translate_to_chinese(texts)
+
+    for ref, trans in zip(refs, translated):
+        if ref[0] == "question":
+            slug_data[ref[1]]["question"] = trans
+        else:
+            slug_data[ref[1]]["sub_options"][ref[2]]["question"] = trans
+
+
 # ──────────────────────────────────────────
 # 内部：对单个子市场发送高频报告
 # ──────────────────────────────────────────
@@ -68,8 +94,9 @@ def run_slugs_summary(slugs: list):
     汇总所有 slug 的当前快照价格，调用 AI 生成整体解读，
     并通过企业微信发送一条汇总消息（template_card 或 Markdown）。
     """
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    slug_data = []
+    beijing_tz = timezone(timedelta(hours=8))
+    timestamp  = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M 北京时间")
+    slug_data  = []
 
     for slug in slugs:
         try:
@@ -109,6 +136,11 @@ def run_slugs_summary(slugs: list):
                 "sub_count":   0,
                 "sub_options": [],
             })
+
+    try:
+        _apply_translations(slug_data)
+    except Exception as e:
+        print(f"[report] 翻译失败，使用原文: {e}")
 
     overall = analyze_all_slugs(slug_data)
     send_summary_card(slug_data, overall, timestamp)
@@ -207,7 +239,8 @@ def build_and_send_mpnews_report(slugs: list):
     将所有 slug 的汇总 + 详细分析 + 走势图打包成一篇企业微信图文消息（mpnews）发送。
     依赖 CORP_ID / CORP_SECRET / AGENT_ID 配置。
     """
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    beijing_tz = timezone(timedelta(hours=8))
+    timestamp  = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M 北京时间")
 
     # ── 1. 快照汇总 & AI 整体解读 ──
     slug_data = []
@@ -237,6 +270,11 @@ def build_and_send_mpnews_report(slugs: list):
             })
         except Exception as e:
             print(f"[report] mpnews 快照: {slug} 失败: {e}")
+
+    try:
+        _apply_translations(slug_data)
+    except Exception as e:
+        print(f"[report] 翻译失败，使用原文: {e}")
 
     overall = analyze_all_slugs(slug_data)
 

@@ -15,6 +15,30 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # ──────────────────────────────────────────
 # 原有函数（保持不变）
 # ──────────────────────────────────────────
+def translate_to_chinese(texts: list) -> list:
+    """
+    批量将英文市场问题翻译为中文，逐行一一对应。
+    失败或行数不匹配时返回原文列表。
+    """
+    if not texts:
+        return []
+    prompt = (
+        "请逐行将以下 Polymarket 预测市场问题翻译为简洁自然的中文，"
+        "一行对应一行，不加序号和额外说明：\n\n"
+        + "\n".join(texts)
+    )
+    resp = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    translated = [
+        line.strip()
+        for line in resp.choices[0].message.content.strip().split("\n")
+        if line.strip()
+    ]
+    return translated if len(translated) == len(texts) else texts
+
+
 def analyze_all_slugs(slug_data: list) -> str:
     """
     对所有 slug 市场的当前价格快照给出整体 AI 解读。
