@@ -96,7 +96,7 @@ def _format_changes(changes: dict) -> str:
 
     short = [_one(k, l) for k, l in [("5m", "5分"), ("30m", "30分"), ("1h", "1时")]]
     long_ = [_one(k, l) for k, l in [("5d", "5日"), ("14d", "14日")]]
-    return "  ".join(short) + "   |   " + "  ".join(long_)
+    return "  ".join(short) + "  " + "  ".join(long_)
 
 
 def _apply_translations(slug_data: list) -> None:
