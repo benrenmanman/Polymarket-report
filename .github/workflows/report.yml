@@ -16,10 +16,8 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python report.py
         env:
-          WECOM_WEBHOOK:   ${{ secrets.WECOM_WEBHOOK }}   # ← 替换 FEISHU_WEBHOOK
+          WECOM_WEBHOOK:   ${{ secrets.WECOM_WEBHOOK }}
           OPENAI_API_KEY:  ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           OPENAI_MODEL:    ${{ secrets.OPENAI_MODEL }}
           MARKET_SLUGS:    ${{ secrets.MARKET_SLUGS }}
-          SUPABASE_URL:    ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY:    ${{ secrets.SUPABASE_KEY }}
