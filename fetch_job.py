@@ -1,51 +1,67 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from config import SLUGS
-from fetcher import fetch_markets_batch
-from notifier import send_text, send_template_card_report, upload_image
-from report import build_integrated_report
+from fetcher import fetch_market, fetch_markets_batch
+from notifier import send_text
+from report import run_highfreq_report
 
 
-def generate_summary_card(markets: dict) -> dict:
+def generate_summary_message(markets: dict) -> str:
     """
-    生成汇总卡片数据
-    返回：{"title": "...", "sections": [...]}
+    生成所有市场的汇总消息
+    参数：markets = {slug: market_data, ...}
     """
     valid_markets = {k: v for k, v in markets.items() if v is not None}
     
     if not valid_markets:
-        return None
+        return "❌ 未获取到任何市场数据"
     
-    sections = []
-    for slug, m in valid_markets.items():
+    header = f"📊 市场监控汇总 ({len(valid_markets)} 个市场)\n"
+    header += "━" * 40 + "\n\n"
+    
+    for idx, (slug, m) in enumerate(valid_markets.items(), 1):
+        # 处理单市场或多选项市场
         if isinstance(m, list):
-            m = m[0]
-        
-        question = m.get("question", slug)
-        prices = m.get("outcomePrices", {})
-        vol24 = m.get("volume24hr", 0)
-        
-        # 提取主要价格
-        if "Yes" in prices:
-            price_str = f"Yes: {prices['Yes']*100:.1f}%"
-        elif len(prices) > 0:
-            top = max(prices.items(), key=lambda x: x[1])
-            price_str = f"{top[0]}: {top[1]*100:.1f}%"
+            # 多选项市场：显示所有选项
+            question = m[0].get("question", slug).split(" - ")[0]  # 提取主问题
+            header += f"{idx}. {question} (多选项)\n"
+            
+            for sub in m:
+                sub_name = sub.get("question", "").split(" - ")[-1]  # 提取选项名
+                prices = sub.get("outcomePrices", {})
+                if "Yes" in prices:
+                    price = prices["Yes"] * 100
+                    header += f"   • {sub_name}: {price:.1f}%\n"
+            header += "\n"
         else:
-            price_str = "无价格"
-        
-        # 格式化成交量
-        vol_str = f"${vol24/1e6:.1f}M" if vol24 >= 1e6 else f"${vol24/1e3:.1f}K"
-        
-        sections.append({
-            "title": question[:20] + "...",
-            "content": f"{price_str} | 24h: {vol_str}"
-        })
+            # 单市场
+            question = m.get("question", slug)
+            prices = m.get("outcomePrices", {})
+            vol24 = m.get("volume24hr", 0)
+            
+            # 提取主要价格
+            if "Yes" in prices:
+                main_price = f"Yes: {prices['Yes']*100:.1f}%"
+            elif len(prices) > 0:
+                top = max(prices.items(), key=lambda x: x[1])
+                main_price = f"{top[0]}: {top[1]*100:.1f}%"
+            else:
+                main_price = "无价格"
+            
+            # 格式化成交量
+            if vol24 >= 1e6:
+                vol_str = f"${vol24/1e6:.1f}M"
+            elif vol24 >= 1e3:
+                vol_str = f"${vol24/1e3:.1f}K"
+            else:
+                vol_str = f"${vol24:.0f}"
+            
+            header += f"{idx}. {question}\n"
+            header += f"   💰 {main_price}  |  📊 24h: {vol_str}\n\n"
     
-    return {
-        "title": f"📊 市场监控汇总 ({len(valid_markets)} 个)",
-        "summary": f"监控时间: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
-        "sections": sections
-    }
+    header += "━" * 40 + "\n"
+    header += "📝 详细报告将逐条发送...\n"
+    
+    return header
 
 
 def run():
@@ -54,56 +70,24 @@ def run():
     # ── 步骤 1：批量拉取市场数据 ──
     markets = fetch_markets_batch(SLUGS)
 
-    # ── 步骤 2：发送汇总卡片 ──
-    summary_card = generate_summary_card(markets)
-    if summary_card:
-        send_template_card_report(
-            title=summary_card["title"],
-            summary=summary_card["summary"],
-            sections=summary_card["sections"]
-        )
-        print(f"[fetch_job] ✓ 汇总卡片已发送")
+    # ── 步骤 2：生成并发送汇总消息 ──
+    summary = generate_summary_message(markets)
+    send_text(summary)
+    print(f"[fetch_job] ✓ 已发送汇总消息")
 
-    # ── 步骤 3：逐条发送详细报告卡片 ──
+    # ── 步骤 3：逐条生成详细报告 ──
     for idx, slug in enumerate(SLUGS, 1):
-        try:
-            print(f"\n[fetch_job] [{idx}/{len(SLUGS)}] 处理 {slug}")
-            
-            # 构建完整报告
-            report_data = build_integrated_report(slug)
-            if not report_data:
-                print(f"[fetch_job] {slug} 无法生成报告")
-                continue
-            
-            # 上传图表
-            chart_media_ids = []
-            for chart_bytes in report_data["charts"]:
-                try:
-                    media_id = upload_image(chart_bytes)
-                    chart_media_ids.append(media_id)
-                except Exception as e:
-                    print(f"[fetch_job] 图表上传失败: {e}")
-            
-            # 构建卡片内容
-            sections = [
-                {"title": "📊 快照", "content": report_data["snapshot"][:50] + "..."}
-            ]
-            sections.extend(report_data["sections"])
-            
-            # 发送模板卡片
-            send_template_card_report(
-                title=report_data["title"],
-                summary=f"包含 {len(report_data['charts'])} 个时间粒度分析",
-                sections=sections,
-                chart_media_ids=chart_media_ids
-            )
-            
-            print(f"[fetch_job] ✓ {slug} 报告卡片已发送")
-            
-        except Exception as e:
-            error_msg = f"❌ [{slug}] 报告失败: {str(e)}"
-            send_text(error_msg)
-            print(f"[fetch_job] {error_msg}")
+        print(f"\n[fetch_job] [{idx}/{len(SLUGS)}] 开始处理 {slug}")
+        
+        # 对每个 slug 生成 1min 和 5min 两个粒度的报告
+        for mode in ["1min", "5min"]:
+            try:
+                run_highfreq_report(slug, mode=mode)
+                print(f"[fetch_job] ✓ {slug} ({mode}) 报告已发送")
+            except Exception as e:
+                error_msg = f"❌ [{slug}] {mode} 报告失败: {str(e)}"
+                send_text(error_msg)
+                print(f"[fetch_job] ✗ {error_msg}")
 
     print(f"\n[fetch_job] 执行完毕 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
