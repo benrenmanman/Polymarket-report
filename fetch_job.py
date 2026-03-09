@@ -1,24 +1,32 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from config import SLUGS
-from fetcher import fetch_markets_batch
-from report import build_summary_report
-from notifier import send_markdown_v2, send_text
+from fetcher import fetch_market, fetch_markets_batch
+from history import fetch_highfreq
+from report import build_report
 
 
 def run():
     print(f"[fetch_job] 开始执行 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
-    # 1. 批量拉取当前市场数据
+    # 批量拉取当前市场数据
     markets = fetch_markets_batch(SLUGS)
 
-    # 2. 发送一条 markdown_v2 汇总消息（表格格式，简洁易读）
-    try:
-        summary_text = build_summary_report(markets)
-        result = send_markdown_v2(summary_text)
-        print(f"[fetch_job] 汇总消息已发送，返回：{result}")
-    except Exception as e:
-        send_text(f"❌ Polymarket 汇总报告发送失败: {e}")
-        print(f"[fetch_job] 发送失败：{e}")
+    for slug in SLUGS:
+        try:
+            market = markets.get(slug)
+            if not market:
+                print(f"[fetch_job] {slug} 未获取到市场数据，跳过")
+                continue
+
+            # 直接从 API 拉取高频数据，不缓存
+            df_1min = fetch_highfreq(slug, mode="1min")
+            df_5min = fetch_highfreq(slug, mode="5min")
+
+            # 生成并发送报告
+            build_report(slug, market, df_1min, df_5min)
+
+        except Exception as e:
+            print(f"[fetch_job] {slug} 处理失败：{e}")
 
     print("[fetch_job] 执行完毕")
 
