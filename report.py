@@ -19,8 +19,31 @@ from config import SLUGS
 def _extract_token_id(market: dict) -> str | None:
     token_ids = market.get("clobTokenIds", [])
     if isinstance(token_ids, str):
-        token_ids = json.loads(token_ids)
+        try:
+            token_ids = json.loads(token_ids)
+        except Exception:
+            return None
     return token_ids[0] if token_ids else None
+
+
+def _get_yes_price(market: dict) -> float | None:
+    """
+    安全提取 Yes 价格。
+    outcomePrices 在部分市场里是 JSON 字符串而非 dict，统一处理。
+    字段完全缺失或无 Yes 键时返回 None。
+    """
+    raw = market.get("outcomePrices")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return None
+    if not isinstance(raw, dict):
+        return None
+    val = raw.get("Yes")
+    return float(val) if val is not None else None
 
 
 _MONTH_MAP = {
@@ -28,6 +51,7 @@ _MONTH_MAP = {
     "May": 5, "June": 6, "July": 7, "August": 8,
     "September": 9, "October": 10, "November": 11, "December": 12,
 }
+
 
 def _short_label(question: str) -> str:
     """从问题文本提取短时间标签，如 'by March 31' → '3/31'"""
@@ -38,17 +62,17 @@ def _short_label(question: str) -> str:
     m2 = re.search(r"before (\d{4})", question)
     if m2:
         return f"<{m2.group(1)}"
+    # fallback：取问题最后16个字符
     return question.split("?")[0].strip()[-16:]
 
 
-def _trend(price: float, last_price: float | None) -> str:
-    """根据价格变化返回趋势箭头"""
-    if last_price is None:
-        return "  "
-    diff = price - last_price
-    if diff > 0.005:
+def _trend(yes: float, day_change: float | None) -> str:
+    """根据 oneDayPriceChange 返回趋势箭头"""
+    if day_change is None:
+        return "-"
+    if day_change > 0.005:
         return "↑"
-    if diff < -0.005:
+    if day_change < -0.005:
         return "↓"
     return "→"
 
@@ -63,7 +87,7 @@ def build_summary_report(markets: dict) -> str:
     """
     now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
     lines = [
-        f"# 📊 Polymarket 快报",
+        "# 📊 Polymarket 快报",
         f"> 更新时间：{now}",
         "",
     ]
@@ -76,44 +100,42 @@ def build_summary_report(markets: dict) -> str:
         if isinstance(market, list):
             # ── 多选项市场：用表格展示 ──
             title = market[0].get("question", slug).rsplit(" by ", 1)[0]
-            lines += [f"### {title}", ""]
-            lines += ["| 截止日期 | Yes 概率 | 趋势 | 24h 成交量 |",
-                      "| :------: | :------: | :--: | ---------: |"]
+            lines += [
+                f"### {title}",
+                "",
+                "| 截止日期 | Yes 概率 | 趋势 | 24h 成交量 |",
+                "| :------: | :------: | :--: | ---------: |",
+            ]
             for sub in market:
-                label   = _short_label(sub.get("question", ""))
-                prices  = sub.get("outcomePrices", {})
-                yes     = prices.get("Yes")
-                vol24   = sub.get("volume24hr", 0)
-                last    = sub.get("oneDayPriceChange")
-                last_p  = (float(yes) - float(last)) if (yes is not None and last is not None) else None
-                arrow   = _trend(float(yes), last_p) if yes is not None else "  "
-                yes_str = f"**{float(yes):.1%}**" if yes is not None else "N/A"
-                vol_str = f"${vol24:,.0f}" if vol24 else "-"
+                label      = _short_label(sub.get("question", ""))
+                yes        = _get_yes_price(sub)           # ← 安全提取
+                vol24      = sub.get("volume24hr") or 0
+                day_change = sub.get("oneDayPriceChange")
+                arrow      = _trend(yes, day_change) if yes is not None else "-"
+                yes_str    = f"**{yes:.1%}**" if yes is not None else "N/A"
+                vol_str    = f"${vol24:,.0f}" if vol24 else "-"
                 lines.append(f"| {label} | {yes_str} | {arrow} | {vol_str} |")
             lines.append("")
 
         else:
             # ── 单市场 ──
-            q      = market.get("question", slug)
-            prices = market.get("outcomePrices", {})
-            yes    = prices.get("Yes")
-            vol24  = market.get("volume24hr", 0)
-            last   = market.get("oneDayPriceChange")
-            last_p = (float(yes) - float(last)) if (yes is not None and last is not None) else None
-            arrow  = _trend(float(yes), last_p) if yes is not None else "  "
-            yes_str = f"**{float(yes):.1%}**" if yes is not None else "N/A"
-            vol_str = f"${vol24:,.0f}" if vol24 else "-"
+            q          = market.get("question", slug)
+            yes        = _get_yes_price(market)             # ← 安全提取
+            vol24      = market.get("volume24hr") or 0
+            day_change = market.get("oneDayPriceChange")
+            arrow      = _trend(yes, day_change) if yes is not None else "-"
+            yes_str    = f"**{yes:.1%}**" if yes is not None else "N/A"
+            vol_str    = f"${vol24:,.0f}" if vol24 else "-"
 
             lines += [
                 f"### {q}",
                 "",
-                f"| Yes 概率 | 趋势 | 24h 成交量 |",
-                f"| :------: | :--: | ---------: |",
+                "| Yes 概率 | 趋势 | 24h 成交量 |",
+                "| :------: | :--: | ---------: |",
                 f"| {yes_str} | {arrow} | {vol_str} |",
                 "",
             ]
 
-    # 末尾分隔线 + 频率提示
     lines += ["---", "> 每20分钟自动更新"]
 
     content = "\n".join(lines)
