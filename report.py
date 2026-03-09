@@ -29,8 +29,10 @@ def _extract_token_id(market: dict) -> str | None:
 def _get_yes_price(market: dict) -> float | None:
     """
     安全提取 Yes 价格。
-    outcomePrices 在部分市场里是 JSON 字符串而非 dict，统一处理。
-    字段完全缺失或无 Yes 键时返回 None。
+    outcomePrices 在 Gamma API 中通常是 JSON 字符串，解析后可能是：
+      - list: ["0.73", "0.27"]  → 第 0 项为 Yes 价格（最常见格式）
+      - dict: {"Yes": "0.73", "No": "0.27"}
+    字段完全缺失或解析失败时返回 None。
     """
     raw = market.get("outcomePrices")
     if raw is None:
@@ -40,10 +42,12 @@ def _get_yes_price(market: dict) -> float | None:
             raw = json.loads(raw)
         except Exception:
             return None
-    if not isinstance(raw, dict):
-        return None
-    val = raw.get("Yes")
-    return float(val) if val is not None else None
+    if isinstance(raw, list):
+        return float(raw[0]) if raw else None
+    if isinstance(raw, dict):
+        val = raw.get("Yes")
+        return float(val) if val is not None else None
+    return None
 
 
 _MONTH_MAP = {
