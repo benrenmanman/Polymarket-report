@@ -8,49 +8,32 @@ GAMMA_API = "https://gamma-api.polymarket.com"
 
 
 def _is_active_market(m: dict) -> bool:
-    """
-    过滤条件（联合多字段，兼容字段缺失情况）：
-      - active 为 True（或字段不存在）
-      - closed 为 False（或字段不存在）
-      - archived 为 False（或字段不存在）
-      - endDateIso / end_date_iso 未过期（如字段存在）
-    """
     if not m.get("active", True):
         return False
     if m.get("closed", False):
         return False
     if m.get("archived", False):
         return False
-
-    # 检查结束时间（兼容两种字段名）
     end_date = m.get("endDateIso") or m.get("end_date_iso")
     if end_date:
         try:
-            end_dt = datetime.fromisoformat(
-                end_date.replace("Z", "+00:00")
-            )
+            end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
             if end_dt < datetime.now(timezone.utc):
                 return False
         except Exception:
-            pass   # 解析失败则不过滤
-
+            pass
     return True
 
 
 def fetch_market(slug: str) -> dict | list:
     """
-    三级降级查询，兼容单市场和多选项市场：
-      Level 1: /markets?slug=        → 普通单市场
-      Level 2: /markets?group_slug=  → 多选项市场子列表
-      Level 3: /events?slug=         → 通过事件查子市场列表
-    返回：
-      dict  → 单市场
-      list  → 多选项市场的子市场列表（每个元素是 dict，已过滤历史/关闭市场）
+    三级降级查询，兼容单市场和多选项市场。
+    返回：dict（单市场）或 list（多选项子市场列表）
     """
     slug = slug.strip()
     print(f"[fetcher] fetch_market slug={repr(slug)}")
 
-    # ── Level 1: 直接查 market slug ──
+    # Level 1: 直接查 market slug
     try:
         resp = requests.get(
             f"{GAMMA_API}/markets",
@@ -65,7 +48,7 @@ def fetch_market(slug: str) -> dict | list:
     except Exception as e:
         print(f"[fetcher] L1 失败: {e}")
 
-    # ── Level 2: 查 group_slug ──
+    # Level 2: 查 group_slug
     try:
         resp = requests.get(
             f"{GAMMA_API}/markets",
@@ -84,7 +67,7 @@ def fetch_market(slug: str) -> dict | list:
     except Exception as e:
         print(f"[fetcher] L2 失败: {e}")
 
-    # ── Level 3: 查 events ──
+    # Level 3: 查 events
     try:
         resp = requests.get(
             f"{GAMMA_API}/events",
@@ -98,8 +81,6 @@ def fetch_market(slug: str) -> dict | list:
             event   = events[0] if isinstance(events, list) else events
             markets = event.get("markets", [])
             print(f"[fetcher] L3 子市场数量（过滤前）: {len(markets)}")
-
-            # ── debug：打印第一个子市场的字段，方便排查 ──
             if markets:
                 sample = markets[0]
                 print(f"[fetcher] L3 样本字段: {list(sample.keys())}")
@@ -107,10 +88,8 @@ def fetch_market(slug: str) -> dict | list:
                       f"closed={sample.get('closed')} "
                       f"archived={sample.get('archived')} "
                       f"endDateIso={sample.get('endDateIso')}")
-
             markets = [m for m in markets if _is_active_market(m)]
             print(f"[fetcher] L3 子市场数量（过滤后）: {len(markets)}")
-
             if markets:
                 return markets
     except Exception as e:
@@ -119,12 +98,29 @@ def fetch_market(slug: str) -> dict | list:
     raise ValueError(f"未找到 slug='{slug}' 对应的市场（三级查询均失败）")
 
 
+def fetch_markets_batch(slugs: list) -> dict:
+    """
+    批量拉取多个 slug 的市场数据。
+    返回 {slug: market_data}，market_data 为 dict 或 list。
+    单个 slug 失败时记录错误并继续，不中断整体流程。
+    """
+    results = {}
+    for slug in slugs:
+        try:
+            results[slug] = fetch_market(slug)
+        except Exception as e:
+            print(f"[fetcher] batch: slug={slug} 获取失败: {e}")
+            results[slug] = None
+        time.sleep(0.3)   # 避免请求过于密集
+    return results
+
+
 def fetch_price_history(token_id: str, mode: str = "1min") -> pd.DataFrame:
     """
     拉取高频历史价格数据。
     mode:
-      "1min" → fidelity=1,  interval=1d  （近1天，约1440条）
-      "5min" → fidelity=5,  interval=1w  （近1周，约2016条）
+      "1min" → fidelity=1, interval=1d（近1天，约1440条）
+      "5min" → fidelity=5, interval=1w（近1周，约2016条）
     返回 DataFrame，列：timestamp(int), price(float), datetime(UTC)
     """
     mode_config = {
@@ -169,7 +165,6 @@ def fetch_price_history(token_id: str, mode: str = "1min") -> pd.DataFrame:
           .reset_index(drop=True)
     )
 
-    # 截取目标时间窗口
     cutoff_days = 1 if mode == "1min" else 7
     cutoff = df["datetime"].max() - pd.Timedelta(days=cutoff_days)
     df = df[df["datetime"] >= cutoff].reset_index(drop=True)
