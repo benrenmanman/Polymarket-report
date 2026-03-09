@@ -20,10 +20,10 @@ def run():
 
             # 直接从 API 拉取高频数据，不缓存
             df_1min = fetch_highfreq(slug, mode="1min")
-            df_5min = fetch_highfreq(slug, mode="5min")
+            df_1day = fetch_highfreq(slug, mode="1day")
 
             # 生成并发送报告
-            build_report(slug, market, df_1min, df_5min)
+            build_report(slug, market, df_1min, df_1day)
 
         except Exception as e:
             print(f"[fetch_job] {slug} 处理失败：{e}")

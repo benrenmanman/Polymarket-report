@@ -119,16 +119,16 @@ def fetch_price_history(token_id: str, mode: str = "1min") -> pd.DataFrame:
     """
     拉取历史价格数据。
     mode:
-      "1min"  → fidelity=1,  interval=1d（近1天，约1440条）
-      "1hour" → fidelity=60, interval=1m（近1月，约720条）
+      "1min"  → fidelity=1,    interval=1d（近1天，约1440条）
+      "1day"  → fidelity=1440, interval=1m（近30天，约30条）
     返回 DataFrame，列：timestamp(int), price(float), datetime(UTC)
     """
     mode_config = {
-        "1min":  {"fidelity": 1,  "intervals": ["1d"]},
-        "1hour": {"fidelity": 60, "intervals": ["1m"]},
+        "1min":  {"fidelity": 1,    "intervals": ["1d"]},
+        "1day":  {"fidelity": 1440, "intervals": ["1m"]},
     }
     if mode not in mode_config:
-        raise ValueError(f"mode 须为 '1min' 或 '1hour'，当前传入: {mode}")
+        raise ValueError(f"mode 须为 '1min' 或 '1day'，当前传入: {mode}")
 
     cfg       = mode_config[mode]
     fidelity  = cfg["fidelity"]

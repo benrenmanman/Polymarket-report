@@ -48,10 +48,10 @@ def _extract_token_id(market: dict) -> str | None:
     return token_ids[0] if token_ids else None
 
 
-def _compute_price_changes(df_1min, df_1hour) -> dict:
+def _compute_price_changes(df_1min, df_1day) -> dict:
     """
-    从 1min（近1天）和 1hour（近30天）df 中，计算当前价格与
-    30分/1时/5日/14日/30日 前的差值。不可用时值为 None。
+    从 1min（近1天）和 1day（近30天）df 中，计算当前价格与
+    5分/30分/1时/5日/14日/30日 前的差值。不可用时值为 None。
     """
     def _lookup(df, delta):
         if df is None or df.empty:
@@ -65,18 +65,20 @@ def _compute_price_changes(df_1min, df_1hour) -> dict:
     current = None
     if df_1min is not None and not df_1min.empty:
         current = float(df_1min["price"].iloc[-1])
-    elif df_1hour is not None and not df_1hour.empty:
-        current = float(df_1hour["price"].iloc[-1])
+    elif df_1day is not None and not df_1day.empty:
+        current = float(df_1day["price"].iloc[-1])
     if current is None:
-        return {"30m": None, "1h": None, "5d": None, "14d": None, "30d": None}
+        return {"5m": None, "30m": None, "1h": None, "5d": None, "14d": None, "30d": None}
 
-    p30m = _lookup(df_1min,  pd.Timedelta(minutes=30))
-    p1h  = _lookup(df_1min,  pd.Timedelta(hours=1))
-    p5d  = _lookup(df_1hour, pd.Timedelta(days=5))
-    p14d = _lookup(df_1hour, pd.Timedelta(days=14))
-    p30d = _lookup(df_1hour, pd.Timedelta(days=30))
+    p5m  = _lookup(df_1min, pd.Timedelta(minutes=5))
+    p30m = _lookup(df_1min, pd.Timedelta(minutes=30))
+    p1h  = _lookup(df_1min, pd.Timedelta(hours=1))
+    p5d  = _lookup(df_1day, pd.Timedelta(days=5))
+    p14d = _lookup(df_1day, pd.Timedelta(days=14))
+    p30d = _lookup(df_1day, pd.Timedelta(days=30))
 
     return {
+        "5m":  (current - p5m)  if p5m  is not None else None,
         "30m": (current - p30m) if p30m is not None else None,
         "1h":  (current - p1h)  if p1h  is not None else None,
         "5d":  (current - p5d)  if p5d  is not None else None,
@@ -87,7 +89,7 @@ def _compute_price_changes(df_1min, df_1hour) -> dict:
 
 def _format_changes(changes: dict) -> str:
     """将变化字典格式化为紧凑的中文字符串，供概览使用。"""
-    labels = [("30m", "30分"), ("1h", "1时"), ("5d", "5日"), ("14d", "14日"), ("30d", "30日")]
+    labels = [("5m", "5分"), ("30m", "30分"), ("1h", "1时"), ("5d", "5日"), ("14d", "14日"), ("30d", "30日")]
     parts = []
     for key, label in labels:
         v = changes.get(key)
@@ -272,11 +274,11 @@ def _build_all_data(slugs: list) -> tuple:
                 yes_price = _extract_yes_price(sub)
 
                 df_1min  = pd.DataFrame()
-                df_1hour = pd.DataFrame()
+                df_1day = pd.DataFrame()
                 entry    = {"slug": slug, "question": question, "modes": {}}
 
                 if token_id:
-                    for mode in ["1min", "1hour"]:
+                    for mode in ["1min", "1day"]:
                         try:
                             df = fetch_highfreq(token_id, mode=mode)
                             if not df.empty:
@@ -285,7 +287,7 @@ def _build_all_data(slugs: list) -> tuple:
                                 if mode == "1min":
                                     df_1min = df
                                 else:
-                                    df_1hour = df
+                                    df_1day = df
                         except Exception as e:
                             print(f"[report] {question} {mode} 失败: {e}")
 
@@ -293,7 +295,7 @@ def _build_all_data(slugs: list) -> tuple:
 
                 changes = _compute_price_changes(
                     df_1min  if not df_1min.empty  else None,
-                    df_1hour if not df_1hour.empty else None,
+                    df_1day if not df_1day.empty else None,
                 )
                 sub_options_out.append({
                     "question":    question,
@@ -332,7 +334,7 @@ def _build_all_data(slugs: list) -> tuple:
 def _collect_all_highfreq_data(slugs: list) -> list:
     """
     遍历所有 slug，拉取双粒度高频数据，返回结构化列表供 mpnews 使用。
-    每个元素：{"slug": ..., "question": ..., "modes": {"1min": {...}, "1hour": {...}}}
+    每个元素：{"slug": ..., "question": ..., "modes": {"1min": {...}, "1day": {...}}}
     modes[mode] 包含 summary / analysis / chart(bytes)
     """
     all_entries = []
@@ -346,7 +348,7 @@ def _collect_all_highfreq_data(slugs: list) -> list:
                 if not token_id:
                     continue
                 entry = {"slug": slug, "question": question, "modes": {}}
-                for mode in ["1min", "1hour"]:
+                for mode in ["1min", "1day"]:
                     df = fetch_highfreq(token_id, mode=mode)
                     if df.empty:
                         continue
@@ -456,7 +458,7 @@ def build_and_send_mpnews_report(slugs: list):
     thumb_media_id: str | None = None
     for entry in all_entries:
         html_parts.append(f"<h4>{entry['question']}</h4>")
-        for mode in ["1min", "1hour"]:
+        for mode in ["1min", "1day"]:
             data = entry["modes"].get(mode)
             if not data:
                 continue
@@ -534,7 +536,7 @@ def run_all_highfreq_reports(slugs: list):
         send_text(f"⚠️ 合并长图发送失败，尝试逐图发送: {e}")
         print(f"[report] 合并图失败，降级逐图: {e}")
         for entry in all_entries:
-            for mode in ["1min", "1hour"]:
+            for mode in ["1min", "1day"]:
                 data = entry["modes"].get(mode)
                 if data and data.get("chart"):
                     try:
