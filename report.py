@@ -4,17 +4,32 @@ from history import fetch_highfreq
 from fetcher import fetch_market
 from analyzer import (
     analyze_snapshot,
+    analyze_all_slugs,
     summarize_highfreq,
     analyze_highfreq,
     plot_highfreq,
 )
-from notifier import send_text, send_highfreq_report
+from notifier import send_text, send_highfreq_report, send_summary_card
 from config import SLUGS
 
 
 # ──────────────────────────────────────────
 # 内部工具：从市场 dict 提取 token_id
 # ──────────────────────────────────────────
+def _extract_yes_price(market: dict) -> float | None:
+    """从市场 dict 提取 YES（第一项）当前概率，无法解析时返回 None"""
+    prices = market.get("outcomePrices", "[]")
+    if isinstance(prices, str):
+        try:
+            prices = json.loads(prices)
+        except Exception:
+            return None
+    try:
+        return float(prices[0]) if prices else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _extract_token_id(market: dict) -> str | None:
     token_ids = market.get("clobTokenIds", [])
     if isinstance(token_ids, str):
@@ -36,6 +51,52 @@ def _run_single_highfreq(question: str, token_id: str, mode: str):
     chart_bytes = plot_highfreq(df, question, mode=mode)
     send_highfreq_report(question, analysis, chart_bytes)
     print(f"[report] 高频报告已发送: {question} ({mode})")
+
+
+# ──────────────────────────────────────────
+# 所有 slug 结果汇总（在详细报告前发送）
+# ──────────────────────────────────────────
+def run_slugs_summary(slugs: list):
+    """
+    汇总所有 slug 的当前快照价格，调用 AI 生成整体解读，
+    并通过企业微信发送一条汇总消息（template_card 或 Markdown）。
+    """
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    slug_data = []
+
+    for slug in slugs:
+        try:
+            market = fetch_market(slug)
+            if isinstance(market, list):
+                # 多选项市场：取第一个子市场的 YES 价格作为代表
+                m        = market[0]
+                is_multi = True
+                sub_cnt  = len(market)
+            else:
+                m        = market
+                is_multi = False
+                sub_cnt  = 1
+
+            slug_data.append({
+                "slug":      slug,
+                "question":  m.get("question", slug),
+                "yes_price": _extract_yes_price(m),
+                "is_multi":  is_multi,
+                "sub_count": sub_cnt,
+            })
+        except Exception as e:
+            print(f"[report] 汇总: {slug} 获取失败: {e}")
+            slug_data.append({
+                "slug":      slug,
+                "question":  slug,
+                "yes_price": None,
+                "is_multi":  False,
+                "sub_count": 0,
+            })
+
+    overall = analyze_all_slugs(slug_data)
+    send_summary_card(slug_data, overall, timestamp)
+    print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
 
 
 # ──────────────────────────────────────────
@@ -88,6 +149,14 @@ def run_highfreq_report(slug: str, mode: str = "1min"):
 # 批量发送多个 slug 的双粒度报告
 # ──────────────────────────────────────────
 def run_all_highfreq_reports(slugs: list):
+    # ── 先发送所有 slug 的汇总 ──
+    try:
+        run_slugs_summary(slugs)
+    except Exception as e:
+        send_text(f"⚠️ 汇总消息发送失败: {e}")
+        print(f"[report] 汇总失败: {e}")
+
+    # ── 再逐 slug 发送详细高频报告 ──
     for slug in slugs:
         for mode in ["1min", "5min"]:
             try:

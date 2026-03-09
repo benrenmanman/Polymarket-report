@@ -3,6 +3,69 @@ import base64
 import hashlib
 from config import WECOM_WEBHOOK   # 原有配置，保持不动
 
+# template_card horizontal_content_list 最多支持 6 条
+_CARD_MAX_ITEMS = 6
+
+
+def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
+    """
+    在所有 slug 详细报告前发送一条汇总消息。
+    优先使用企业微信模板卡片（text_notice），超过 6 条或失败时降级为 Markdown。
+
+    slug_data: [{"slug": ..., "question": ..., "yes_price": float|None,
+                 "is_multi": bool, "sub_count": int}, ...]
+    overall_analysis : AI 整体解读文字
+    timestamp        : 更新时间字符串，如 "2024-01-01 12:00 UTC"
+    """
+    n = len(slug_data)
+
+    def _price_str(d: dict) -> str:
+        if d.get("is_multi"):
+            return f"多选项 ({d.get('sub_count', 0)} 个)"
+        yp = d.get("yes_price")
+        return f"{yp:.1%}" if yp is not None else "N/A"
+
+    # ── 尝试 template_card（≤6 条时）──
+    if n <= _CARD_MAX_ITEMS:
+        items = [
+            {"keyname": d["question"][:24], "value": _price_str(d)}
+            for d in slug_data
+        ]
+        payload = {
+            "msgtype": "template_card",
+            "template_card": {
+                "card_type": "text_notice",
+                "source": {
+                    "desc": "Polymarket 市场监控",
+                    "desc_color": 0,
+                },
+                "main_title": {
+                    "title": "📊 市场概览",
+                    "desc": timestamp,
+                },
+                "emphasis_content": {
+                    "title": str(n),
+                    "desc": "个监控市场",
+                },
+                "horizontal_content_list": items,
+                "card_action": {"type": 0},
+            },
+        }
+        try:
+            resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
+            if resp.json().get("errcode", -1) == 0:
+                send_markdown(f"**整体市场解读：**\n\n{overall_analysis}")
+                return
+        except Exception:
+            pass   # 降级到 Markdown
+
+    # ── 降级：Markdown ──
+    lines = ["## 📊 Polymarket 市场概览", f"> 更新时间：{timestamp}", ""]
+    for d in slug_data:
+        lines.append(f"- **{d['question']}**：{_price_str(d)}")
+    lines += ["", "**整体市场解读：**", overall_analysis]
+    send_markdown("\n".join(lines))
+
 
 def send_text(content: str):
     """原有函数，保持不变"""

@@ -15,6 +15,36 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # ──────────────────────────────────────────
 # 原有函数（保持不变）
 # ──────────────────────────────────────────
+def analyze_all_slugs(slug_data: list) -> str:
+    """
+    对所有 slug 市场的当前价格快照给出整体 AI 解读。
+    slug_data: [{"slug": ..., "question": ..., "yes_price": float|None, "is_multi": bool}, ...]
+    """
+    if not slug_data:
+        return "暂无数据。"
+
+    summary_list = [
+        {
+            "slug":      d["slug"],
+            "question":  d["question"],
+            "yes_price": d["yes_price"],
+            "is_multi":  d["is_multi"],
+        }
+        for d in slug_data
+    ]
+    prompt = (
+        "你是一个预测市场分析师。以下是多个 Polymarket 市场的当前价格快照，"
+        "请用中文给出简洁的整体市场概况（200字以内），"
+        "重点关注各市场概率水平和值得关注的动向：\n\n"
+        + json.dumps(summary_list, ensure_ascii=False, indent=2)
+    )
+    resp = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content.strip()
+
+
 def analyze_snapshot(snapshot: dict) -> str:
     """原有快照分析，保持不变"""
     prompt = (
