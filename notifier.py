@@ -156,12 +156,13 @@ def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
     lines = ["## 📊 Polymarket 市场概览", f"> 更新时间：{timestamp}", ""]
     for d in slug_data:
         if d.get("is_multi") and d.get("sub_options"):
-            lines.append(f"- **{d['question']}**（{d.get('sub_count', 0)} 个选项）")
+            lines.append(f"- **{d['question']}**")
             for opt in d["sub_options"]:
                 lines.append(f"  - {opt['question']}：{_price_str(opt.get('yes_price'))}")
         else:
             lines.append(f"- **{d['question']}**：{_price_str(d.get('yes_price'))}")
-    lines += ["", "**整体市场解读：**", overall_analysis]
+        lines.append("")  # slug 之间的空行
+    lines += ["**整体市场解读：**", overall_analysis]
     send_markdown("\n".join(lines))
 
 

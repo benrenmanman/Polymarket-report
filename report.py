@@ -10,6 +10,7 @@ from analyzer import (
     summarize_highfreq,
     analyze_highfreq,
     plot_highfreq,
+    plot_all_highfreq_combined,
 )
 from notifier import (
     send_text,
@@ -223,6 +224,7 @@ def _collect_all_highfreq_data(slugs: list) -> list:
                         "summary":  summary,
                         "analysis": analysis,
                         "chart":    chart,
+                        "df":       df,      # 供合并长图使用
                     }
                 all_entries.append(entry)
         except Exception as e:
@@ -368,20 +370,50 @@ def run_all_highfreq_reports(slugs: list):
             send_text(f"⚠️ mpnews 发送失败，已降级为分段消息: {e}")
             print(f"[report] mpnews 失败，降级: {e}")
 
-    # ── 降级：先发汇总卡片，再逐 slug 发送高频报告 ──
+    # ── 降级：先发汇总卡片，再收集数据，合并为一张长图发送 ──
     try:
         run_slugs_summary(slugs)
     except Exception as e:
         send_text(f"⚠️ 汇总消息发送失败: {e}")
         print(f"[report] 汇总失败: {e}")
 
-    for slug in slugs:
+    # 收集所有市场数据（含 df）
+    all_entries = _collect_all_highfreq_data(slugs)
+
+    # 发送各市场文字分析
+    for entry in all_entries:
         for mode in ["1min", "5min"]:
+            data = entry["modes"].get(mode)
+            if not data:
+                continue
+            mode_label = "近1天（1分钟粒度）" if mode == "1min" else "近1周（5分钟粒度）"
             try:
-                run_highfreq_report(slug, mode=mode)
+                from notifier import send_markdown
+                send_markdown(
+                    f"📊 **{entry['question']}** · {mode_label}\n\n{data['analysis']}"
+                )
             except Exception as e:
-                send_text(f"❌ [{slug}] mode={mode} 报告失败: {e}")
-                print(f"[report] 错误: {e}")
+                print(f"[report] 文字分析发送失败 ({entry['question']} {mode}): {e}")
+
+    # 合并所有图表为一张长图发送
+    try:
+        combined_chart = plot_all_highfreq_combined(all_entries)
+        if combined_chart:
+            from notifier import send_image
+            send_image(combined_chart)
+            print("[report] 合并长图已发送")
+    except Exception as e:
+        send_text(f"⚠️ 合并长图发送失败，尝试逐图发送: {e}")
+        print(f"[report] 合并图失败，降级逐图: {e}")
+        for entry in all_entries:
+            for mode in ["1min", "5min"]:
+                data = entry["modes"].get(mode)
+                if data and data.get("chart"):
+                    try:
+                        from notifier import send_image
+                        send_image(data["chart"])
+                    except Exception as ex:
+                        print(f"[report] 逐图发送失败: {ex}")
 
 
 # ──────────────────────────────────────────
