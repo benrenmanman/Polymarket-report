@@ -7,7 +7,7 @@ def fetch_highfreq(token_id: str, mode: str = "1min") -> pd.DataFrame:
     """
     直接从 Polymarket API 拉取高频数据，不做任何本地缓存。
     token_id : clobTokenIds[0]，由 report.py 解析后传入
-    mode     : "1min"（近1天）或 "5min"（近1周）
+    mode     : "1min"（近1天）或 "1day"（近30天，日度）
     返回     : DataFrame，列：timestamp / price / datetime
     """
     df = fetch_price_history(token_id, mode=mode)
