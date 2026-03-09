@@ -159,8 +159,14 @@ def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
             lines.append(f"- **{d['question']}**")
             for opt in d["sub_options"]:
                 lines.append(f"  - {opt['question']}：{_price_str(opt.get('yes_price'))}")
+                chg = opt.get("changes_str", "").strip()
+                if chg:
+                    lines.append(f"    变动：{chg}")
         else:
             lines.append(f"- **{d['question']}**：{_price_str(d.get('yes_price'))}")
+            chg = d.get("changes_str", "").strip()
+            if chg:
+                lines.append(f"  变动：{chg}")
         lines.append("")  # slug 之间的空行
     lines += ["**整体市场解读：**", overall_analysis]
     send_markdown("\n".join(lines))

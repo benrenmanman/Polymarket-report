@@ -1,4 +1,5 @@
 import json
+import pandas as pd
 from datetime import datetime, timezone, timedelta
 from history import fetch_highfreq
 from fetcher import fetch_market
@@ -45,6 +46,55 @@ def _extract_token_id(market: dict) -> str | None:
     if isinstance(token_ids, str):
         token_ids = json.loads(token_ids)
     return token_ids[0] if token_ids else None
+
+
+def _compute_price_changes(df_1min, df_5min) -> dict:
+    """
+    从 1min（近1天）和 5min（近1周）df 中，分别计算当前价格与
+    30分/1小时/1天/7天 前的差值。不可用时值为 None。
+    """
+    def _lookup(df, delta):
+        if df is None or df.empty:
+            return None
+        now    = df["datetime"].max()
+        target = now - delta
+        if target < df["datetime"].min():
+            return None
+        return df.loc[(df["datetime"] - target).abs().idxmin(), "price"]
+
+    current = None
+    if df_1min is not None and not df_1min.empty:
+        current = float(df_1min["price"].iloc[-1])
+    elif df_5min is not None and not df_5min.empty:
+        current = float(df_5min["price"].iloc[-1])
+    if current is None:
+        return {"30m": None, "1h": None, "1d": None, "7d": None}
+
+    p30m = _lookup(df_1min, pd.Timedelta(minutes=30))
+    p1h  = _lookup(df_1min, pd.Timedelta(hours=1))
+    p1d  = _lookup(df_5min, pd.Timedelta(days=1))
+    p7d  = _lookup(df_5min, pd.Timedelta(days=7))
+
+    return {
+        "30m": (current - p30m) if p30m is not None else None,
+        "1h":  (current - p1h)  if p1h  is not None else None,
+        "1d":  (current - p1d)  if p1d  is not None else None,
+        "7d":  (current - p7d)  if p7d  is not None else None,
+    }
+
+
+def _format_changes(changes: dict) -> str:
+    """将变化字典格式化为紧凑的中文字符串，供概览使用。"""
+    labels = [("30m", "30分"), ("1h", "1时"), ("1d", "1日"), ("7d", "7日")]
+    parts = []
+    for key, label in labels:
+        v = changes.get(key)
+        if v is None:
+            parts.append(f"—({label})")
+        else:
+            arrow = "↑" if v >= 0 else "↓"
+            parts.append(f"{arrow}{v:+.1%}({label})")
+    return "  ".join(parts)
 
 
 def _apply_translations(slug_data: list) -> None:
@@ -191,6 +241,87 @@ def run_highfreq_report(slug: str, mode: str = "1min"):
             send_text(f"⚠️ [{slug}] 无法获取 token_id")
             return
         _run_single_highfreq(question, token_id, mode)
+
+
+# ──────────────────────────────────────────
+# 降级路径：一次性拉取快照 + 高频数据，计算价格变化
+# ──────────────────────────────────────────
+def _build_all_data(slugs: list) -> tuple:
+    """
+    一次遍历，同时构建：
+      slug_data  : 概览列表（含 changes_str 字段）
+      all_entries: 高频列表（含 df、chart，供合并长图）
+    返回 (slug_data, all_entries)
+    """
+    slug_data   = []
+    all_entries = []
+
+    for slug in slugs:
+        try:
+            market     = fetch_market(slug)
+            sub_markets = market if isinstance(market, list) else [market]
+            is_multi    = isinstance(market, list)
+
+            sub_options_out = []
+
+            for sub in sub_markets:
+                question  = sub.get("question", slug)
+                token_id  = _extract_token_id(sub)
+                yes_price = _extract_yes_price(sub)
+
+                df_1min = pd.DataFrame()
+                df_5min = pd.DataFrame()
+                entry   = {"slug": slug, "question": question, "modes": {}}
+
+                if token_id:
+                    for mode in ["1min", "5min"]:
+                        try:
+                            df = fetch_highfreq(token_id, mode=mode)
+                            if not df.empty:
+                                chart = plot_highfreq(df, question, mode=mode)
+                                entry["modes"][mode] = {"df": df, "chart": chart}
+                                if mode == "1min":
+                                    df_1min = df
+                                else:
+                                    df_5min = df
+                        except Exception as e:
+                            print(f"[report] {question} {mode} 失败: {e}")
+
+                all_entries.append(entry)
+
+                changes = _compute_price_changes(
+                    df_1min if not df_1min.empty else None,
+                    df_5min if not df_5min.empty else None,
+                )
+                sub_options_out.append({
+                    "question":    question,
+                    "yes_price":   yes_price,
+                    "changes":     changes,
+                    "changes_str": _format_changes(changes),
+                })
+
+            m = sub_markets[0]
+            top = sub_options_out[0] if sub_options_out else {}
+            slug_data.append({
+                "slug":        slug,
+                "question":    m.get("question", slug),
+                "yes_price":   _extract_yes_price(m),
+                "is_multi":    is_multi,
+                "sub_count":   len(sub_markets),
+                "sub_options": sub_options_out if is_multi else [],
+                "changes":     top.get("changes", {}),
+                "changes_str": top.get("changes_str", ""),
+            })
+
+        except Exception as e:
+            print(f"[report] _build_all_data: {slug} 失败: {e}")
+            slug_data.append({
+                "slug": slug, "question": slug, "yes_price": None,
+                "is_multi": False, "sub_count": 0, "sub_options": [],
+                "changes": {}, "changes_str": "",
+            })
+
+    return slug_data, all_entries
 
 
 # ──────────────────────────────────────────
@@ -370,30 +501,25 @@ def run_all_highfreq_reports(slugs: list):
             send_text(f"⚠️ mpnews 发送失败，已降级为分段消息: {e}")
             print(f"[report] mpnews 失败，降级: {e}")
 
-    # ── 降级：先发汇总卡片，再收集数据，合并为一张长图发送 ──
+    # ── 降级：一次拉取所有数据，发概览卡片 + 合并长图（不发文字分析）──
+    beijing_tz = timezone(timedelta(hours=8))
+    timestamp  = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M 北京时间")
+
+    slug_data, all_entries = _build_all_data(slugs)
+
     try:
-        run_slugs_summary(slugs)
+        _apply_translations(slug_data)
+    except Exception as e:
+        print(f"[report] 翻译失败，使用原文: {e}")
+
+    overall = analyze_all_slugs(slug_data)
+
+    try:
+        send_summary_card(slug_data, overall, timestamp)
+        print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
     except Exception as e:
         send_text(f"⚠️ 汇总消息发送失败: {e}")
         print(f"[report] 汇总失败: {e}")
-
-    # 收集所有市场数据（含 df）
-    all_entries = _collect_all_highfreq_data(slugs)
-
-    # 发送各市场文字分析
-    for entry in all_entries:
-        for mode in ["1min", "5min"]:
-            data = entry["modes"].get(mode)
-            if not data:
-                continue
-            mode_label = "近1天（1分钟粒度）" if mode == "1min" else "近1周（5分钟粒度）"
-            try:
-                from notifier import send_markdown
-                send_markdown(
-                    f"📊 **{entry['question']}** · {mode_label}\n\n{data['analysis']}"
-                )
-            except Exception as e:
-                print(f"[report] 文字分析发送失败 ({entry['question']} {mode}): {e}")
 
     # 合并所有图表为一张长图发送
     try:
