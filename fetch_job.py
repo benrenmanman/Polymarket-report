@@ -1,9 +1,8 @@
 from datetime import datetime, timezone, timedelta
 from config import SLUGS
 from fetcher import fetch_market, fetch_markets_batch
-from history import fetch_highfreq
-from report import build_report
 from notifier import send_text
+from report import run_highfreq_report
 
 
 def generate_summary_message(markets: dict) -> str:
@@ -22,31 +21,42 @@ def generate_summary_message(markets: dict) -> str:
     for idx, (slug, m) in enumerate(valid_markets.items(), 1):
         # 处理单市场或多选项市场
         if isinstance(m, list):
-            m = m[0]  # 取第一个子市场作为代表
-        
-        question = m.get("question", slug)
-        prices = m.get("outcomePrices", {})
-        vol24 = m.get("volume24hr", 0)
-        
-        # 提取主要价格
-        if "Yes" in prices:
-            main_price = f"Yes: {prices['Yes']*100:.1f}%"
-        elif len(prices) > 0:
-            top = max(prices.items(), key=lambda x: x[1])
-            main_price = f"{top[0]}: {top[1]*100:.1f}%"
+            # 多选项市场：显示所有选项
+            question = m[0].get("question", slug).split(" - ")[0]  # 提取主问题
+            header += f"{idx}. {question} (多选项)\n"
+            
+            for sub in m:
+                sub_name = sub.get("question", "").split(" - ")[-1]  # 提取选项名
+                prices = sub.get("outcomePrices", {})
+                if "Yes" in prices:
+                    price = prices["Yes"] * 100
+                    header += f"   • {sub_name}: {price:.1f}%\n"
+            header += "\n"
         else:
-            main_price = "无价格"
-        
-        # 格式化成交量
-        if vol24 >= 1e6:
-            vol_str = f"${vol24/1e6:.1f}M"
-        elif vol24 >= 1e3:
-            vol_str = f"${vol24/1e3:.1f}K"
-        else:
-            vol_str = f"${vol24:.0f}"
-        
-        header += f"{idx}. {question}\n"
-        header += f"   💰 {main_price}  |  📊 24h: {vol_str}\n\n"
+            # 单市场
+            question = m.get("question", slug)
+            prices = m.get("outcomePrices", {})
+            vol24 = m.get("volume24hr", 0)
+            
+            # 提取主要价格
+            if "Yes" in prices:
+                main_price = f"Yes: {prices['Yes']*100:.1f}%"
+            elif len(prices) > 0:
+                top = max(prices.items(), key=lambda x: x[1])
+                main_price = f"{top[0]}: {top[1]*100:.1f}%"
+            else:
+                main_price = "无价格"
+            
+            # 格式化成交量
+            if vol24 >= 1e6:
+                vol_str = f"${vol24/1e6:.1f}M"
+            elif vol24 >= 1e3:
+                vol_str = f"${vol24/1e3:.1f}K"
+            else:
+                vol_str = f"${vol24:.0f}"
+            
+            header += f"{idx}. {question}\n"
+            header += f"   💰 {main_price}  |  📊 24h: {vol_str}\n\n"
     
     header += "━" * 40 + "\n"
     header += "📝 详细报告将逐条发送...\n"
@@ -63,30 +73,23 @@ def run():
     # ── 步骤 2：生成并发送汇总消息 ──
     summary = generate_summary_message(markets)
     send_text(summary)
-    print(f"[fetch_job] 已发送汇总消息")
+    print(f"[fetch_job] ✓ 已发送汇总消息")
 
     # ── 步骤 3：逐条生成详细报告 ──
     for idx, slug in enumerate(SLUGS, 1):
-        try:
-            market = markets.get(slug)
-            if not market:
-                print(f"[fetch_job] [{idx}/{len(SLUGS)}] {slug} 未获取到市场数据，跳过")
-                continue
+        print(f"\n[fetch_job] [{idx}/{len(SLUGS)}] 开始处理 {slug}")
+        
+        # 对每个 slug 生成 1min 和 5min 两个粒度的报告
+        for mode in ["1min", "5min"]:
+            try:
+                run_highfreq_report(slug, mode=mode)
+                print(f"[fetch_job] ✓ {slug} ({mode}) 报告已发送")
+            except Exception as e:
+                error_msg = f"❌ [{slug}] {mode} 报告失败: {str(e)}"
+                send_text(error_msg)
+                print(f"[fetch_job] ✗ {error_msg}")
 
-            print(f"[fetch_job] [{idx}/{len(SLUGS)}] 处理 {slug}")
-
-            # 直接从 API 拉取高频数据，不缓存
-            df_1min = fetch_highfreq(slug, mode="1min")
-            df_5min = fetch_highfreq(slug, mode="5min")
-
-            # 生成并发送报告
-            build_report(slug, market, df_1min, df_5min)
-
-        except Exception as e:
-            print(f"[fetch_job] [{idx}/{len(SLUGS)}] {slug} 处理失败：{e}")
-            send_text(f"❌ {slug} 报告生成失败：{str(e)}")
-
-    print("[fetch_job] 执行完毕")
+    print(f"\n[fetch_job] 执行完毕 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
 
 if __name__ == "__main__":
