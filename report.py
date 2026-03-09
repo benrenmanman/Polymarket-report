@@ -8,10 +8,11 @@ from analyzer import (
     plot_highfreq,
 )
 from notifier import send_text, send_highfreq_report
+from config import SLUGS
 
 
 # ──────────────────────────────────────────
-# 原有函数：快照报告（改为直接从API获取当前数据）
+# 快照报告（直接从API获取当前数据）
 # ──────────────────────────────────────────
 def run_report(slug: str):
     """实时拉取当前市场快照并分析"""
@@ -24,7 +25,7 @@ def run_report(slug: str):
 
 
 # ──────────────────────────────────────────
-# 高频数据报告（改为纯API拉取，不写缓存）
+# 高频数据报告（纯API拉取，不写缓存）
 # ──────────────────────────────────────────
 def run_highfreq_report(slug: str, mode: str = "1min"):
     """
@@ -73,3 +74,10 @@ def run_all_highfreq_reports(slugs: list):
             except Exception as e:
                 send_text(f"❌ [{slug}] mode={mode} 报告失败: {e}")
                 print(f"[report] 错误: {e}")
+
+
+# ──────────────────────────────────────────
+# 入口
+# ──────────────────────────────────────────
+if __name__ == "__main__":
+    run_all_highfreq_reports(SLUGS)
