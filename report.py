@@ -1,20 +1,21 @@
 import json
-from datetime import datetime, timezone, timedelta
+import re
+from datetime import datetime, timezone
 from history import fetch_highfreq
-from fetcher import fetch_market
+from fetcher import fetch_market, fetch_markets_batch
 from analyzer import (
     analyze_snapshot,
     summarize_highfreq,
     analyze_highfreq,
     plot_highfreq,
 )
-from notifier import send_text, send_highfreq_report
+from notifier import send_text, send_markdown, send_markdown_v2, send_highfreq_report
 from config import SLUGS
 
 
-# ──────────────────────────────────────────
-# 内部工具：从市场 dict 提取 token_id
-# ──────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# 工具函数
+# ─────────────────────────────────────────────────────
 def _extract_token_id(market: dict) -> str | None:
     token_ids = market.get("clobTokenIds", [])
     if isinstance(token_ids, str):
@@ -22,15 +23,117 @@ def _extract_token_id(market: dict) -> str | None:
     return token_ids[0] if token_ids else None
 
 
-# ──────────────────────────────────────────
-# 内部：对单个子市场发送高频报告
-# ──────────────────────────────────────────
+_MONTH_MAP = {
+    "January": 1, "February": 2, "March": 3, "April": 4,
+    "May": 5, "June": 6, "July": 7, "August": 8,
+    "September": 9, "October": 10, "November": 11, "December": 12,
+}
+
+def _short_label(question: str) -> str:
+    """从问题文本提取短时间标签，如 'by March 31' → '3/31'"""
+    m = re.search(r"by (\w+)\s+(\d+)", question)
+    if m:
+        mn = _MONTH_MAP.get(m.group(1), m.group(1))
+        return f"{mn}/{m.group(2)}"
+    m2 = re.search(r"before (\d{4})", question)
+    if m2:
+        return f"<{m2.group(1)}"
+    return question.split("?")[0].strip()[-16:]
+
+
+def _trend(price: float, last_price: float | None) -> str:
+    """根据价格变化返回趋势箭头"""
+    if last_price is None:
+        return "  "
+    diff = price - last_price
+    if diff > 0.005:
+        return "↑"
+    if diff < -0.005:
+        return "↓"
+    return "→"
+
+
+# ─────────────────────────────────────────────────────
+# 核心：构建 markdown_v2 汇总消息
+# ─────────────────────────────────────────────────────
+def build_summary_report(markets: dict) -> str:
+    """
+    将所有 slug 的最新价格汇总为一条 markdown_v2 消息（含表格）。
+    markets : {slug: market_data}，market_data 可为 dict 或 list
+    """
+    now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
+    lines = [
+        f"# 📊 Polymarket 快报",
+        f"> 更新时间：{now}",
+        "",
+    ]
+
+    for slug, market in markets.items():
+        if not market:
+            lines += [f"### ⚠️ {slug}", "> 数据获取失败", ""]
+            continue
+
+        if isinstance(market, list):
+            # ── 多选项市场：用表格展示 ──
+            title = market[0].get("question", slug).rsplit(" by ", 1)[0]
+            lines += [f"### {title}", ""]
+            lines += ["| 截止日期 | Yes 概率 | 趋势 | 24h 成交量 |",
+                      "| :------: | :------: | :--: | ---------: |"]
+            for sub in market:
+                label   = _short_label(sub.get("question", ""))
+                prices  = sub.get("outcomePrices", {})
+                yes     = prices.get("Yes")
+                vol24   = sub.get("volume24hr", 0)
+                last    = sub.get("oneDayPriceChange")
+                last_p  = (float(yes) - float(last)) if (yes is not None and last is not None) else None
+                arrow   = _trend(float(yes), last_p) if yes is not None else "  "
+                yes_str = f"**{float(yes):.1%}**" if yes is not None else "N/A"
+                vol_str = f"${vol24:,.0f}" if vol24 else "-"
+                lines.append(f"| {label} | {yes_str} | {arrow} | {vol_str} |")
+            lines.append("")
+
+        else:
+            # ── 单市场 ──
+            q      = market.get("question", slug)
+            prices = market.get("outcomePrices", {})
+            yes    = prices.get("Yes")
+            vol24  = market.get("volume24hr", 0)
+            last   = market.get("oneDayPriceChange")
+            last_p = (float(yes) - float(last)) if (yes is not None and last is not None) else None
+            arrow  = _trend(float(yes), last_p) if yes is not None else "  "
+            yes_str = f"**{float(yes):.1%}**" if yes is not None else "N/A"
+            vol_str = f"${vol24:,.0f}" if vol24 else "-"
+
+            lines += [
+                f"### {q}",
+                "",
+                f"| Yes 概率 | 趋势 | 24h 成交量 |",
+                f"| :------: | :--: | ---------: |",
+                f"| {yes_str} | {arrow} | {vol_str} |",
+                "",
+            ]
+
+    # 末尾分隔线 + 频率提示
+    lines += ["---", "> 每20分钟自动更新"]
+
+    content = "\n".join(lines)
+
+    # markdown_v2 限制 4096 字节，超出时裁剪并提示
+    encoded = content.encode("utf-8")
+    if len(encoded) > 4000:
+        content = encoded[:4000].decode("utf-8", errors="ignore") + "\n\n> ⚠️ 内容过长已截断"
+
+    return content
+
+
+# ─────────────────────────────────────────────────────
+# 详细高频报告（保留，供按需调用）
+# ─────────────────────────────────────────────────────
 def _run_single_highfreq(question: str, token_id: str, mode: str):
     df = fetch_highfreq(token_id, mode=mode)
     if df.empty:
         send_text(f"⚠️ [{question}] mode={mode} 未获取到高频数据")
         return
-
     summary     = summarize_highfreq(df, mode=mode)
     analysis    = analyze_highfreq(question, summary)
     chart_bytes = plot_highfreq(df, question, mode=mode)
@@ -38,67 +141,45 @@ def _run_single_highfreq(question: str, token_id: str, mode: str):
     print(f"[report] 高频报告已发送: {question} ({mode})")
 
 
-# ──────────────────────────────────────────
-# 快照报告
-# ──────────────────────────────────────────
+def build_report(slug: str, market, df_1min, df_5min):
+    """发送单个 slug 的详细高频报告（由 fetch_job 按需调用）"""
+    subs = market if isinstance(market, list) else [market]
+    for sub in subs:
+        question = sub.get("question", slug)
+        token_id = _extract_token_id(sub)
+        if not token_id:
+            continue
+        for mode, df in [("1min", df_1min), ("5min", df_5min)]:
+            if df is not None and not df.empty:
+                try:
+                    summary     = summarize_highfreq(df, mode=mode)
+                    analysis    = analyze_highfreq(question, summary)
+                    chart_bytes = plot_highfreq(df, question, mode=mode)
+                    send_highfreq_report(question, analysis, chart_bytes)
+                    print(f"[report] 高频报告已发送: {question} ({mode})")
+                except Exception as e:
+                    send_text(f"❌ [{question}] mode={mode} 失败: {e}")
+
+
+# ─────────────────────────────────────────────────────
+# 快照报告（保留原有功能）
+# ─────────────────────────────────────────────────────
 def run_report(slug: str):
     market = fetch_market(slug)
     if not market:
         send_text(f"[{slug}] 无法获取市场数据")
         return
-    # 多选项市场取第一个子市场做快照
     m = market[0] if isinstance(market, list) else market
     analysis = analyze_snapshot(m)
     send_text(f"📌 {slug}\n{analysis}")
 
 
-# ──────────────────────────────────────────
-# 高频数据报告（自动兼容单/多选项市场）
-# ──────────────────────────────────────────
-def run_highfreq_report(slug: str, mode: str = "1min"):
-    print(f"[report] 开始高频报告: slug={slug}, mode={mode}")
-
-    market = fetch_market(slug)   # dict（单市场）或 list（多选项市场）
-
-    if isinstance(market, list):
-        # ── 多选项市场：逐个子市场发送 ──
-        print(f"[report] 多选项市场，共 {len(market)} 个选项")
-        for sub in market:
-            question = sub.get("question", slug)
-            token_id = _extract_token_id(sub)
-            if not token_id:
-                print(f"[report] 跳过无 token_id 的子市场: {question}")
-                continue
-            try:
-                _run_single_highfreq(question, token_id, mode)
-            except Exception as e:
-                send_text(f"❌ [{question}] mode={mode} 子市场报告失败: {e}")
-                print(f"[report] 子市场错误: {e}")
-    else:
-        # ── 单市场 ──
-        question = market.get("question", slug)
-        token_id = _extract_token_id(market)
-        if not token_id:
-            send_text(f"⚠️ [{slug}] 无法获取 token_id")
-            return
-        _run_single_highfreq(question, token_id, mode)
-
-
-# ──────────────────────────────────────────
-# 批量发送多个 slug 的双粒度报告
-# ──────────────────────────────────────────
-def run_all_highfreq_reports(slugs: list):
-    for slug in slugs:
-        for mode in ["1min", "5min"]:
-            try:
-                run_highfreq_report(slug, mode=mode)
-            except Exception as e:
-                send_text(f"❌ [{slug}] mode={mode} 报告失败: {e}")
-                print(f"[report] 错误: {e}")
-
-
-# ──────────────────────────────────────────
-# 入口
-# ──────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# 独立运行入口（report.yml 触发 → 只发汇总）
+# ─────────────────────────────────────────────────────
 if __name__ == "__main__":
-    run_all_highfreq_reports(SLUGS)
+    print("[report] 开始执行")
+    markets = fetch_markets_batch(SLUGS)
+    summary_text = build_summary_report(markets)
+    result = send_markdown_v2(summary_text)
+    print(f"[report] 汇总消息已发送，返回：{result}")
