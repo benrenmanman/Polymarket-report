@@ -1,6 +1,5 @@
 requests
 openai
-supabase
 pandas
 matplotlib
 pyarrow
