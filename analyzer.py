@@ -39,6 +39,33 @@ def translate_to_chinese(texts: list) -> list:
     return translated if len(translated) == len(texts) else texts
 
 
+def translate_sub_options_short(group_question: str, sub_questions: list) -> list:
+    """
+    将多选项市场的子选项翻译为简短的中文标签。
+    以 group_question（已译）为上下文，去掉各选项中与组问题重复的部分，
+    只保留关键区分信息（日期、数值、条件等）。
+    失败或行数不匹配时返回原文列表。
+    """
+    if not sub_questions:
+        return []
+    prompt = (
+        f"以下是 Polymarket 预测市场「{group_question}」的多个子选项，"
+        "请将每个选项翻译为简短的中文标签（去掉与主题重复的上下文，"
+        "只保留关键日期、数值或条件），一行对应一行，不加序号和额外说明：\n\n"
+        + "\n".join(sub_questions)
+    )
+    resp = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    translated = [
+        line.strip()
+        for line in resp.choices[0].message.content.strip().split("\n")
+        if line.strip()
+    ]
+    return translated if len(translated) == len(sub_questions) else sub_questions
+
+
 def analyze_all_slugs(slug_data: list) -> str:
     """
     对所有 slug 市场的当前价格快照给出整体 AI 解读。

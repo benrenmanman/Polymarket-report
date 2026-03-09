@@ -6,6 +6,7 @@ from analyzer import (
     analyze_snapshot,
     analyze_all_slugs,
     translate_to_chinese,
+    translate_sub_options_short,
     summarize_highfreq,
     analyze_highfreq,
     plot_highfreq,
@@ -47,27 +48,25 @@ def _extract_token_id(market: dict) -> str | None:
 
 def _apply_translations(slug_data: list) -> None:
     """
-    收集 slug_data 中所有英文 question（含 sub_options），
-    批量翻译为中文并原地更新。
+    两步翻译 slug_data 中的所有英文文本：
+    1. 批量翻译主 question（一次 AI 调用）
+    2. 对每个多选项市场，以已译的主问题为上下文，
+       翻译 sub_options 为简短标签（每组一次 AI 调用）
     """
-    # 按顺序收集所有待翻译文本，同时记录回填路径
-    texts: list[str] = []
-    refs:  list      = []   # ("question", idx) 或 ("sub_option", idx, j)
+    # ── 第一步：翻译主问题 ──
+    main_texts = [d["question"] for d in slug_data]
+    main_translated = translate_to_chinese(main_texts)
+    for d, trans in zip(slug_data, main_translated):
+        d["question"] = trans
 
-    for i, d in enumerate(slug_data):
-        texts.append(d["question"])
-        refs.append(("question", i))
-        for j, opt in enumerate(d.get("sub_options", [])):
-            texts.append(opt["question"])
-            refs.append(("sub_option", i, j))
-
-    translated = translate_to_chinese(texts)
-
-    for ref, trans in zip(refs, translated):
-        if ref[0] == "question":
-            slug_data[ref[1]]["question"] = trans
-        else:
-            slug_data[ref[1]]["sub_options"][ref[2]]["question"] = trans
+    # ── 第二步：翻译各多选项的子选项（短标签） ──
+    for d in slug_data:
+        if not d.get("sub_options"):
+            continue
+        sub_texts = [opt["question"] for opt in d["sub_options"]]
+        sub_translated = translate_sub_options_short(d["question"], sub_texts)
+        for opt, trans in zip(d["sub_options"], sub_translated):
+            opt["question"] = trans
 
 
 # ──────────────────────────────────────────
