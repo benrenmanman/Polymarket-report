@@ -12,7 +12,6 @@ from analyzer import (
     analyze_highfreq,
     plot_highfreq,
     plot_all_highfreq_combined,
-    plot_changes_heatmap,
 )
 from notifier import (
     send_text,
@@ -52,7 +51,7 @@ def _extract_token_id(market: dict) -> str | None:
 def _compute_price_changes(df_1min, df_1day) -> dict:
     """
     从 1min（近1天）和 1day（近30天）df 中，计算当前价格与
-    5分/30分/1时/5日/14日/30日 前的差值。不可用时值为 None。
+    5分/30分/1时/5日/14日 前的差值。不可用时值为 None。
     """
     def _lookup(df, delta):
         if df is None or df.empty:
@@ -69,14 +68,13 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
     elif df_1day is not None and not df_1day.empty:
         current = float(df_1day["price"].iloc[-1])
     if current is None:
-        return {"5m": None, "30m": None, "1h": None, "5d": None, "14d": None, "30d": None}
+        return {"5m": None, "30m": None, "1h": None, "5d": None, "14d": None}
 
     p5m  = _lookup(df_1min, pd.Timedelta(minutes=5))
     p30m = _lookup(df_1min, pd.Timedelta(minutes=30))
     p1h  = _lookup(df_1min, pd.Timedelta(hours=1))
     p5d  = _lookup(df_1day, pd.Timedelta(days=5))
     p14d = _lookup(df_1day, pd.Timedelta(days=14))
-    p30d = _lookup(df_1day, pd.Timedelta(days=30))
 
     return {
         "5m":  (current - p5m)  if p5m  is not None else None,
@@ -84,7 +82,6 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
         "1h":  (current - p1h)  if p1h  is not None else None,
         "5d":  (current - p5d)  if p5d  is not None else None,
         "14d": (current - p14d) if p14d is not None else None,
-        "30d": (current - p30d) if p30d is not None else None,
     }
 
 
@@ -98,30 +95,8 @@ def _format_changes(changes: dict) -> str:
         return f"{label}:{arrow}{v:+.1%}"
 
     short = [_one(k, l) for k, l in [("5m", "5分"), ("30m", "30分"), ("1h", "1时")]]
-    long_ = [_one(k, l) for k, l in [("5d", "5日"), ("14d", "14日"), ("30d", "30日")]]
+    long_ = [_one(k, l) for k, l in [("5d", "5日"), ("14d", "14日")]]
     return "  ".join(short) + "   |   " + "  ".join(long_)
-
-
-def _flatten_for_heatmap(slug_data: list) -> list:
-    """
-    将 slug_data 展开为热力图所需的扁平列表。
-    每项：{"name": str（截取前16字）, "changes": dict}
-    多选项市场逐个子选项展开。
-    """
-    flat = []
-    for d in slug_data:
-        if d.get("is_multi") and d.get("sub_options"):
-            for opt in d["sub_options"]:
-                flat.append({
-                    "name":    opt.get("question", "?")[:16],
-                    "changes": opt.get("changes", {}),
-                })
-        else:
-            flat.append({
-                "name":    d.get("question", "?")[:16],
-                "changes": d.get("changes", {}),
-            })
-    return flat
 
 
 def _apply_translations(slug_data: list) -> None:
@@ -547,17 +522,6 @@ def run_all_highfreq_reports(slugs: list):
     except Exception as e:
         send_text(f"⚠️ 汇总消息发送失败: {e}")
         print(f"[report] 汇总失败: {e}")
-
-    # ── 热力图：价格变化可视化 ──
-    try:
-        flat     = _flatten_for_heatmap(slug_data)
-        heatmap  = plot_changes_heatmap(flat)
-        if heatmap:
-            from notifier import send_image
-            send_image(heatmap)
-            print("[report] 热力图已发送")
-    except Exception as e:
-        print(f"[report] 热力图发送失败: {e}")
 
     # ── 合并走势长图 ──
     try:
