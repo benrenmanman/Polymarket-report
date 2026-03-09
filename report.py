@@ -260,10 +260,10 @@ def build_and_send_mpnews_report(slugs: list):
     for d in slug_data:
         if d.get("is_multi") and d.get("sub_options"):
             # 多选项市场：展开每个子选项
+            def _opt_price(yp) -> str:
+                return f"{yp:.1%}" if yp is not None else "N/A"
             sub_rows = "".join(
-                f"<li>{opt['question']}："
-                f"{'%s' % f\"{opt['yes_price']:.1%}\" if opt.get('yes_price') is not None else 'N/A'}"
-                f"</li>"
+                f"<li>{opt['question']}：{_opt_price(opt.get('yes_price'))}</li>"
                 for opt in d["sub_options"]
             )
             html_parts.append(
