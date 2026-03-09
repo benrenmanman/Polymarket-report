@@ -50,5 +50,3 @@ def send_highfreq_report(question: str, analysis: str, chart_bytes: bytes):
     # 2. 再发走势图
     if chart_bytes:
         send_image(chart_bytes)
-    if chart_bytes:
-        send_image(chart_bytes)
