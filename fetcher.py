@@ -7,11 +7,19 @@ GAMMA_API = "https://gamma-api.polymarket.com"
 
 
 def fetch_market(slug: str) -> dict:
-    """原有函数，保持不变"""
-    url = f"{GAMMA_API}/markets"
+    """
+    通过 slug 查询单个市场，带调试日志。
+    """
+    slug = slug.strip()                          # ← 二次清洗，防止空白字符
+    url  = f"{GAMMA_API}/markets"
+    print(f"[fetcher] fetch_market slug={repr(slug)}")   # ← 打印 repr 暴露隐藏字符
+
     resp = requests.get(url, params={"slug": slug}, timeout=10)
     resp.raise_for_status()
     data = resp.json()
+
+    print(f"[fetcher] API 返回条数: {len(data) if isinstance(data, list) else 1}")
+
     if not data:
         raise ValueError(f"未找到 slug='{slug}' 对应的市场")
     return data[0] if isinstance(data, list) else data
