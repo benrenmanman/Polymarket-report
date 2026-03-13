@@ -1,20 +1,25 @@
 import json
 import io
+import os
 import textwrap
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")           # 无头环境，不弹窗
+from matplotlib import font_manager, rcParams
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from matplotlib import rcParams
 
-# 中文字体支持 —— 系统已安装 WenQuanYi Zen Hei，优先使用
+# 直接注册字体文件，确保 matplotlib 能找到文泉驿正黑
+_WQY_FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+if os.path.exists(_WQY_FONT):
+    font_manager.fontManager.addfont(_WQY_FONT)
+
 rcParams["font.sans-serif"] = [
     "WenQuanYi Zen Hei", "WenQuanYi Zen Hei Mono",
     "WenQuanYi Micro Hei", "Noto Sans CJK SC", "SimHei",
     "Arial Unicode MS", "DejaVu Sans",
 ]
-rcParams["axes.unicode_minus"] = False   # 负号正常显示
+rcParams["axes.unicode_minus"] = False
 rcParams["font.size"] = 10
 from openai import OpenAI
 from config import OPENAI_API_KEY, OPENAI_MODEL   # 原有配置，保持不动

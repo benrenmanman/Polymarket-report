@@ -5,7 +5,6 @@ from history import fetch_highfreq
 from fetcher import fetch_market
 from analyzer import (
     analyze_snapshot,
-    analyze_all_slugs,
     translate_to_chinese,
     translate_sub_options_short,
     summarize_highfreq,
@@ -194,8 +193,7 @@ def run_slugs_summary(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    overall = analyze_all_slugs(slug_data)
-    send_summary_card(slug_data, overall, timestamp)
+    send_summary_card(slug_data, timestamp)
     print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
 
 
@@ -410,8 +408,6 @@ def build_and_send_mpnews_report(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    overall = analyze_all_slugs(slug_data)
-
     # ── 2. 收集详细高频数据 ──
     all_entries = _collect_all_highfreq_data(slugs)
 
@@ -447,7 +443,6 @@ def build_and_send_mpnews_report(slugs: list):
             )
     html_parts += [
         "</table>",
-        f"<p><b>整体解读：</b>{overall}</p>",
         "<hr/>",
         "<h3>详细走势分析</h3>",
     ]
@@ -484,7 +479,7 @@ def build_and_send_mpnews_report(slugs: list):
         "thumb_media_id": thumb_media_id,
         "author":         "Polymarket Bot",
         "content":        html,
-        "digest":         overall[:120],
+        "digest":         f"共 {len(slug_data)} 个市场 · {timestamp}",
     }]
     send_mpnews(articles)
     print(f"[report] mpnews 图文报告已发送，共 {len(slug_data)} 个市场")
@@ -514,10 +509,8 @@ def run_all_highfreq_reports(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    overall = analyze_all_slugs(slug_data)
-
     try:
-        send_summary_card(slug_data, overall, timestamp)
+        send_summary_card(slug_data, timestamp)
         print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
     except Exception as e:
         send_text(f"⚠️ 汇总消息发送失败: {e}")

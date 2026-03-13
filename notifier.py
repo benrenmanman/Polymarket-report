@@ -99,7 +99,7 @@ def send_mpnews(articles: list, touser: str = "@all"):
         raise RuntimeError(f"send_mpnews 失败: {data}")
 
 
-def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
+def send_summary_card(slug_data: list, timestamp: str):
     """
     在所有 slug 详细报告前发送一条汇总消息。
     优先使用企业微信模板卡片（text_notice），条目超出上限或失败时降级为 Markdown。
@@ -107,8 +107,7 @@ def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
     slug_data: [{"slug": ..., "question": ..., "yes_price": float|None,
                  "is_multi": bool, "sub_count": int,
                  "sub_options": [{"question":..., "yes_price":...}, ...]}, ...]
-    overall_analysis : AI 整体解读文字
-    timestamp        : 更新时间字符串，如 "2024-01-01 12:00 UTC"
+    timestamp : 更新时间字符串，如 "2024-01-01 12:00 UTC"
     """
     def _price_str(yp) -> str:
         return f"{yp:.1%}" if yp is not None else "N/A"
@@ -150,7 +149,6 @@ def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
         try:
             resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
             if resp.json().get("errcode", -1) == 0:
-                send_markdown(f"**整体市场解读：**\n\n{overall_analysis}")
                 return
         except Exception:
             pass   # 降级到 Markdown
@@ -171,7 +169,6 @@ def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
             if chg:
                 lines.append(f"  变动：{chg}")
         lines.append("")  # slug 之间的空行
-    lines += ["**整体市场解读：**", overall_analysis]
     send_long_markdown("\n".join(lines))
 
 
