@@ -9,16 +9,17 @@ from matplotlib import font_manager, rcParams
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-# 直接注册字体文件，确保 matplotlib 能找到文泉驿正黑
+# 直接从字体文件读取真实内部名称，避免手写名称与字体元数据不匹配
 _WQY_FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+_CJK_FONT_NAME = None
 if os.path.exists(_WQY_FONT):
     font_manager.fontManager.addfont(_WQY_FONT)
+    _CJK_FONT_NAME = font_manager.FontProperties(fname=_WQY_FONT).get_name()
 
-rcParams["font.sans-serif"] = [
-    "WenQuanYi Zen Hei", "WenQuanYi Zen Hei Mono",
-    "WenQuanYi Micro Hei", "Noto Sans CJK SC", "SimHei",
-    "Arial Unicode MS", "DejaVu Sans",
-]
+rcParams["font.family"] = "sans-serif"
+rcParams["font.sans-serif"] = (
+    [_CJK_FONT_NAME] if _CJK_FONT_NAME else []
+) + ["Noto Sans CJK SC", "SimHei", "Arial Unicode MS", "DejaVu Sans"]
 rcParams["axes.unicode_minus"] = False
 rcParams["font.size"] = 10
 from openai import OpenAI
@@ -324,27 +325,18 @@ def plot_all_highfreq_combined(entries: list) -> bytes:
     all_axes = [all_axes] if n * 2 == 1 else list(all_axes)
 
     fig.patch.set_facecolor("#ffffff")
-    fig.suptitle(
-        "Polymarket 市场概率走势报告",
-        fontsize=14, fontweight="bold",
-        y=1.0, va="bottom",
-    )
 
     for i, (question, mode, df) in enumerate(panels):
         ax1 = all_axes[i * 2]
         ax2 = all_axes[i * 2 + 1]
         _draw_highfreq_axes(ax1, ax2, df, question, mode)
-        # 面板之间加浅色分隔线（在 ax2 底部）
-        if i < n - 1:
-            ax2.spines["bottom"].set_linewidth(1.5)
-            ax2.spines["bottom"].set_color("#cccccc")
 
-    fig.tight_layout(rect=[0, 0, 1, 0.99])
+    fig.tight_layout()
     buf = io.BytesIO()
     # 面板越多 DPI 越低，确保合并长图不超过企微 2 MB 图片限制
     dpi = max(72, 120 - n * 4)
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
+                facecolor="#ffffff")
     plt.close(fig)
     buf.seek(0)
     return buf.read()

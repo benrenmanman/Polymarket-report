@@ -504,8 +504,25 @@ def run_all_highfreq_reports(slugs: list):
 
     slug_data, all_entries = _build_all_data(slugs)
 
+    # ── 翻译，并同步更新 all_entries 里的 question 字段 ──
     try:
+        # 翻译前记录原始文本，用于事后建立映射
+        pre_main = [d["question"] for d in slug_data]
+        pre_subs = [
+            [opt["question"] for opt in d.get("sub_options", [])]
+            for d in slug_data
+        ]
         _apply_translations(slug_data)
+        # 建立 原文 -> 译文 的查找表
+        trans_map: dict[str, str] = {}
+        for i, d in enumerate(slug_data):
+            trans_map[pre_main[i]] = d["question"]
+            for j, opt in enumerate(d.get("sub_options", [])):
+                if j < len(pre_subs[i]):
+                    trans_map[pre_subs[i][j]] = opt["question"]
+        # 将译文同步写入 all_entries（供 plot_all_highfreq_combined 使用）
+        for entry in all_entries:
+            entry["question"] = trans_map.get(entry["question"], entry["question"])
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
