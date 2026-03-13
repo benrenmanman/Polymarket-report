@@ -304,7 +304,9 @@ def plot_all_highfreq_combined(entries: list) -> bytes:
 
     plt.tight_layout()
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+    # 面板越多，DPI 越低，确保合并长图不超过企微 2 MB 图片限制
+    dpi = max(72, 130 - n * 5)
+    plt.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
     return buf.read()

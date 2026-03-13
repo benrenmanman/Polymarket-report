@@ -175,22 +175,37 @@ def send_summary_card(slug_data: list, overall_analysis: str, timestamp: str):
 def send_text(content: str):
     """原有函数，保持不变"""
     payload = {"msgtype": "text", "text": {"content": content}}
-    requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
+    resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
+    data = resp.json()
+    if data.get("errcode", 0) != 0:
+        print(f"[notifier] send_text 失败: {data}")
 
 
 def send_markdown(content: str):
     """原有函数（如有），保持不变"""
     payload = {"msgtype": "markdown", "markdown": {"content": content}}
-    requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
+    resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
+    data = resp.json()
+    if data.get("errcode", 0) != 0:
+        raise RuntimeError(f"send_markdown 失败: {data}")
+
+
+# 企业微信 webhook 图片大小限制
+_IMAGE_MAX_BYTES = 2 * 1024 * 1024   # 2 MB
 
 
 def send_image(image_bytes: bytes):
     """
     新增：发送图片到企业微信。
     image_bytes : PNG/JPG 的原始字节（由 analyzer.plot_highfreq 返回）
+    超过 2MB 或企微返回错误码时抛出 RuntimeError，供调用方触发降级逻辑。
     """
     if not image_bytes:
         return
+    if len(image_bytes) > _IMAGE_MAX_BYTES:
+        raise RuntimeError(
+            f"图片大小 {len(image_bytes) / 1024:.0f} KB 超出企业微信 2 MB 限制"
+        )
     b64    = base64.b64encode(image_bytes).decode("utf-8")
     md5    = hashlib.md5(image_bytes).hexdigest()
     payload = {
@@ -202,6 +217,9 @@ def send_image(image_bytes: bytes):
     }
     resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=15)
     resp.raise_for_status()
+    data = resp.json()
+    if data.get("errcode", 0) != 0:
+        raise RuntimeError(f"send_image 失败: {data}")
 
 
 def send_highfreq_report(question: str, analysis: str, chart_bytes: bytes):
