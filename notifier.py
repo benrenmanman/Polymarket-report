@@ -167,13 +167,13 @@ def send_summary_card(slug_data: list, timestamp: str):
                 chg   = opt.get("changes_str", "").strip()
                 block_lines.append(f"> {opt['question']}：**{price}**")
                 if chg:
-                    block_lines.append(f"> {chg}")
+                    block_lines.append(f"> `{chg}`")
         else:
             price = _price_str(d.get("yes_price"))
             chg   = d.get("changes_str", "").strip()
             block_lines.append(f"**{d['question']}：{price}**")
             if chg:
-                block_lines.append(chg)
+                block_lines.append(f"`{chg}`")
         blocks.append("\n".join(block_lines))
 
     # 按字节边界分组，仅在市场边界处切割
