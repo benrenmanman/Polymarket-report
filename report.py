@@ -531,27 +531,6 @@ def run_all_highfreq_reports(slugs: list):
         send_text(f"⚠️ 汇总消息发送失败: {e}")
         print(f"[report] 汇总失败: {e}")
 
-    # ── 合并走势长图 ──
-    try:
-        combined_chart = plot_all_highfreq_combined(all_entries)
-        if combined_chart:
-            from notifier import send_image, send_text as _send_text
-            _send_text("如下是各市场概率变动变化图👇🏻")
-            send_image(combined_chart)
-            print("[report] 合并长图已发送")
-    except Exception as e:
-        send_text(f"⚠️ 合并长图发送失败，尝试逐图发送: {e}")
-        print(f"[report] 合并图失败，降级逐图: {e}")
-        for entry in all_entries:
-            for mode in ["1min", "1day"]:
-                data = entry["modes"].get(mode)
-                if data and data.get("chart"):
-                    try:
-                        from notifier import send_image
-                        send_image(data["chart"])
-                    except Exception as ex:
-                        print(f"[report] 逐图发送失败: {ex}")
-
 
 # ──────────────────────────────────────────
 # 入口
