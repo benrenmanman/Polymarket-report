@@ -153,22 +153,24 @@ def send_summary_card(slug_data: list, timestamp: str):
         except Exception:
             pass   # 降级到 Markdown
 
-    # ── 降级：Markdown，多选项展开为缩进子项 ──
-    lines = ["## 📊 Polymarket 市场概览", f"> 更新时间：{timestamp}", ""]
+    # ── 降级：Markdown，每个市场独立区块，变动行用代码格式防乱码 ──
+    lines = ["## 📊 Polymarket 市场概览", f"> {timestamp}", ""]
     for d in slug_data:
         if d.get("is_multi") and d.get("sub_options"):
-            lines.append(f"- **{d['question']}**")
+            lines.append(f"**{d['question']}**")
             for opt in d["sub_options"]:
-                lines.append(f"  - {opt['question']}：{_price_str(opt.get('yes_price'))}")
-                chg = opt.get("changes_str", "").strip()
+                price = _price_str(opt.get("yes_price"))
+                chg   = opt.get("changes_str", "").strip()
+                lines.append(f"> {opt['question']}：**{price}**")
                 if chg:
-                    lines.append(f"    变动：{chg}")
+                    lines.append(f"> `{chg}`")
         else:
-            lines.append(f"- **{d['question']}**：{_price_str(d.get('yes_price'))}")
-            chg = d.get("changes_str", "").strip()
+            price = _price_str(d.get("yes_price"))
+            chg   = d.get("changes_str", "").strip()
+            lines.append(f"**{d['question']}：{price}**")
             if chg:
-                lines.append(f"  变动：{chg}")
-        lines.append("")  # slug 之间的空行
+                lines.append(f"> `{chg}`")
+        lines.append("")  # 市场之间空行
     send_long_markdown("\n".join(lines))
 
 

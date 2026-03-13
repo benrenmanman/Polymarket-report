@@ -85,17 +85,15 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
 
 
 def _format_changes(changes: dict) -> str:
-    """将变化字典格式化为短期|长期分段的中文字符串，供概览使用。"""
+    """将变化字典格式化为紧凑的英文标签字符串，供概览使用。"""
     def _one(key, label):
         v = changes.get(key)
         if v is None:
-            return f"{label}:—"
-        arrow = "↑" if v >= 0 else "↓"
-        return f"{label}:{arrow}{v:+.1%}"
+            return f"{label}:n/a"
+        return f"{label}:{v:+.1%}"
 
-    short = [_one(k, l) for k, l in [("5m", "5分"), ("30m", "30分"), ("1h", "1时")]]
-    long_ = [_one(k, l) for k, l in [("5d", "5日"), ("14d", "14日")]]
-    return "  ".join(short) + "  " + "  ".join(long_)
+    parts = [_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h"), ("5d", "5d"), ("14d", "14d")]]
+    return "  ".join(parts)
 
 
 def _apply_translations(slug_data: list) -> None:

@@ -203,11 +203,12 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     """
     在已有的两个 Axes 上绘制高频走势图（上：价格曲线，下：变动柱状）。
     供 plot_highfreq 和 plot_all_highfreq_combined 共用。
+    All labels are in English to avoid font/encoding issues.
     """
     import datetime as _dt
 
-    mode_label = "1分钟 · 近24小时" if mode == "1min" else "日线 · 近30天"
-    fmt        = "%m-%d %H:%M"       if mode == "1min" else "%m月%d日"
+    mode_label = "1min · 24h" if mode == "1min" else "Daily · 30d"
+    fmt        = "%m-%d %H:%M" if mode == "1min" else "%m-%d"
 
     # 将 tz-aware datetime 转为 tz-naive，避免 matplotlib 兼容性问题
     if hasattr(df["datetime"].dtype, "tz") and df["datetime"].dt.tz is not None:
@@ -222,21 +223,21 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     chg_sign   = "+" if chg >= 0 else ""
 
     # ── 上图：价格走势 ──
-    ax1.plot(ts, df["price"], color="#4f8ef7", linewidth=1.5, label="YES 概率", zorder=3)
+    ax1.plot(ts, df["price"], color="#4f8ef7", linewidth=1.5, label="YES prob.", zorder=3)
     ax1.fill_between(ts, df["price"], alpha=0.12, color="#4f8ef7")
     y_lo = max(0.0, df["price"].min() - 0.06)
     y_hi = min(1.0, df["price"].max() + 0.06)
     ax1.set_ylim(y_lo, y_hi)
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.0%}"))
-    ax1.set_ylabel("隐含概率", fontsize=9, labelpad=4)
+    ax1.set_ylabel("Prob.", fontsize=9, labelpad=4)
 
-    # 标题：自动换行，避免过长文字溢出
-    title_text = textwrap.fill(f"{question}（{mode_label}）", width=52)
-    ax1.set_title(title_text, fontsize=10, fontweight="bold", pad=6, loc="left")
+    # 标题：英文问题 + 粒度，自动换行防溢出
+    title_text = textwrap.fill(f"{question}  [{mode_label}]", width=72)
+    ax1.set_title(title_text, fontsize=9, fontweight="bold", pad=6, loc="left")
 
-    # 右上角显示当前价格和涨跌
+    # 右上角：当前价格 + 涨跌幅（纯 ASCII，无需中文字体）
     ax1.annotate(
-        f"当前：{price_now:.1%}  {chg_sign}{chg:.1%}",
+        f"Now {price_now:.1%}  ({chg_sign}{chg:.1%})",
         xy=(1, 1), xycoords="axes fraction",
         fontsize=9, ha="right", va="top",
         color=chg_color, fontweight="bold",
@@ -257,7 +258,7 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     ax2.bar(ts, diff, color=colors, width=bar_w, alpha=0.80, zorder=3)
     ax2.axhline(0, color="#888888", linewidth=0.8, zorder=2)
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:+.1%}"))
-    ax2.set_ylabel("涨跌幅", fontsize=9, labelpad=4)
+    ax2.set_ylabel("Change", fontsize=9, labelpad=4)
     ax2.set_facecolor("#f8f9fa")
     ax2.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
     ax2.tick_params(axis="x", rotation=25, labelsize=8)
