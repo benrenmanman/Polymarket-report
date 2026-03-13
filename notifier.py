@@ -153,25 +153,40 @@ def send_summary_card(slug_data: list, timestamp: str):
         except Exception:
             pass   # 降级到 Markdown
 
-    # ── 降级：Markdown，每个市场独立区块，变动行用代码格式防乱码 ──
-    lines = ["## 📊 Polymarket 市场概览", f"> {timestamp}", ""]
+    # ── 降级：Markdown，按市场原子分块，不在市场中间断开 ──
+    header = f"## 📊 Polymarket 市场概览\n> {timestamp}\n"
+
+    # 为每个市场独立生成内容块
+    blocks: list[str] = []
     for d in slug_data:
+        block_lines: list[str] = []
         if d.get("is_multi") and d.get("sub_options"):
-            lines.append(f"**{d['question']}**")
+            block_lines.append(f"**{d['question']}**")
             for opt in d["sub_options"]:
                 price = _price_str(opt.get("yes_price"))
                 chg   = opt.get("changes_str", "").strip()
-                lines.append(f"> {opt['question']}：**{price}**")
+                block_lines.append(f"> {opt['question']}：**{price}**")
                 if chg:
-                    lines.append(f"> {chg}")
+                    block_lines.append(f"> {chg}")
         else:
             price = _price_str(d.get("yes_price"))
             chg   = d.get("changes_str", "").strip()
-            lines.append(f"**{d['question']}：{price}**")
+            block_lines.append(f"**{d['question']}：{price}**")
             if chg:
-                lines.append(f"> `{chg}`")
-        lines.append("")  # 市场之间空行
-    send_long_markdown("\n".join(lines))
+                block_lines.append(chg)
+        blocks.append("\n".join(block_lines))
+
+    # 按字节边界分组，仅在市场边界处切割
+    current = header
+    for block in blocks:
+        candidate = current + "\n" + block
+        if len(candidate.encode("utf-8")) > _MD_MAX_BYTES and current != header:
+            send_markdown(current.rstrip())
+            current = header + "\n" + block
+        else:
+            current = candidate
+    if current.strip():
+        send_markdown(current.rstrip())
 
 
 def send_text(content: str):
