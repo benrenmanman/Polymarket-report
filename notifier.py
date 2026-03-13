@@ -163,7 +163,7 @@ def send_summary_card(slug_data: list, timestamp: str):
                 chg   = opt.get("changes_str", "").strip()
                 lines.append(f"> {opt['question']}：**{price}**")
                 if chg:
-                    lines.append(f"> `{chg}`")
+                    lines.append(f"> {chg}")
         else:
             price = _price_str(d.get("yes_price"))
             chg   = d.get("changes_str", "").strip()

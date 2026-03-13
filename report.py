@@ -85,12 +85,13 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
 
 
 def _format_changes(changes: dict) -> str:
-    """将变化字典格式化为紧凑的英文标签字符串，供概览使用。"""
+    """将变化字典格式化为带颜色的 Markdown 片段：正值红色，负值绿色。"""
     def _one(key, label):
         v = changes.get(key)
         if v is None:
             return f"{label}:n/a"
-        return f"{label}:{v:+.1%}"
+        color = "#FF0000" if v >= 0 else "#00AA00"
+        return f'{label}:<font color="{color}">{v:+.1%}</font>'
 
     parts = [_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h"), ("5d", "5d"), ("14d", "14d")]]
     return "  ".join(parts)
