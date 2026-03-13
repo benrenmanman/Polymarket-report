@@ -527,7 +527,8 @@ def run_all_highfreq_reports(slugs: list):
     try:
         combined_chart = plot_all_highfreq_combined(all_entries)
         if combined_chart:
-            from notifier import send_image
+            from notifier import send_image, send_text as _send_text
+            _send_text("如下是各市场概率变动变化图👇🏻")
             send_image(combined_chart)
             print("[report] 合并长图已发送")
     except Exception as e:
