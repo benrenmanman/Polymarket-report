@@ -5,7 +5,6 @@ from history import fetch_highfreq
 from fetcher import fetch_market
 from analyzer import (
     analyze_snapshot,
-    analyze_all_slugs,
     translate_to_chinese,
     translate_sub_options_short,
     summarize_highfreq,
@@ -86,17 +85,15 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
 
 
 def _format_changes(changes: dict) -> str:
-    """将变化字典格式化为短期|长期分段的中文字符串，供概览使用。"""
+    """将变化字典格式化为紧凑的英文标签字符串，供概览使用。"""
     def _one(key, label):
         v = changes.get(key)
         if v is None:
-            return f"{label}:—"
-        arrow = "↑" if v >= 0 else "↓"
-        return f"{label}:{arrow}{v:+.1%}"
+            return f"{label}:n/a"
+        return f"{label}:{v:+.1%}"
 
-    short = [_one(k, l) for k, l in [("5m", "5分"), ("30m", "30分"), ("1h", "1时")]]
-    long_ = [_one(k, l) for k, l in [("5d", "5日"), ("14d", "14日")]]
-    return "  ".join(short) + "  " + "  ".join(long_)
+    parts = [_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h"), ("5d", "5d"), ("14d", "14d")]]
+    return "  ".join(parts)
 
 
 def _apply_translations(slug_data: list) -> None:
@@ -194,8 +191,7 @@ def run_slugs_summary(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    overall = analyze_all_slugs(slug_data)
-    send_summary_card(slug_data, overall, timestamp)
+    send_summary_card(slug_data, timestamp)
     print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
 
 
@@ -410,8 +406,6 @@ def build_and_send_mpnews_report(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    overall = analyze_all_slugs(slug_data)
-
     # ── 2. 收集详细高频数据 ──
     all_entries = _collect_all_highfreq_data(slugs)
 
@@ -447,7 +441,6 @@ def build_and_send_mpnews_report(slugs: list):
             )
     html_parts += [
         "</table>",
-        f"<p><b>整体解读：</b>{overall}</p>",
         "<hr/>",
         "<h3>详细走势分析</h3>",
     ]
@@ -484,7 +477,7 @@ def build_and_send_mpnews_report(slugs: list):
         "thumb_media_id": thumb_media_id,
         "author":         "Polymarket Bot",
         "content":        html,
-        "digest":         overall[:120],
+        "digest":         f"共 {len(slug_data)} 个市场 · {timestamp}",
     }]
     send_mpnews(articles)
     print(f"[report] mpnews 图文报告已发送，共 {len(slug_data)} 个市场")
@@ -509,39 +502,34 @@ def run_all_highfreq_reports(slugs: list):
 
     slug_data, all_entries = _build_all_data(slugs)
 
+    # ── 翻译，并同步更新 all_entries 里的 question 字段 ──
     try:
+        # 翻译前记录原始文本，用于事后建立映射
+        pre_main = [d["question"] for d in slug_data]
+        pre_subs = [
+            [opt["question"] for opt in d.get("sub_options", [])]
+            for d in slug_data
+        ]
         _apply_translations(slug_data)
+        # 建立 原文 -> 译文 的查找表
+        trans_map: dict[str, str] = {}
+        for i, d in enumerate(slug_data):
+            trans_map[pre_main[i]] = d["question"]
+            for j, opt in enumerate(d.get("sub_options", [])):
+                if j < len(pre_subs[i]):
+                    trans_map[pre_subs[i][j]] = opt["question"]
+        # 将译文同步写入 all_entries（供 plot_all_highfreq_combined 使用）
+        for entry in all_entries:
+            entry["question"] = trans_map.get(entry["question"], entry["question"])
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    overall = analyze_all_slugs(slug_data)
-
     try:
-        send_summary_card(slug_data, overall, timestamp)
+        send_summary_card(slug_data, timestamp)
         print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
     except Exception as e:
         send_text(f"⚠️ 汇总消息发送失败: {e}")
         print(f"[report] 汇总失败: {e}")
-
-    # ── 合并走势长图 ──
-    try:
-        combined_chart = plot_all_highfreq_combined(all_entries)
-        if combined_chart:
-            from notifier import send_image
-            send_image(combined_chart)
-            print("[report] 合并长图已发送")
-    except Exception as e:
-        send_text(f"⚠️ 合并长图发送失败，尝试逐图发送: {e}")
-        print(f"[report] 合并图失败，降级逐图: {e}")
-        for entry in all_entries:
-            for mode in ["1min", "1day"]:
-                data = entry["modes"].get(mode)
-                if data and data.get("chart"):
-                    try:
-                        from notifier import send_image
-                        send_image(data["chart"])
-                    except Exception as ex:
-                        print(f"[report] 逐图发送失败: {ex}")
 
 
 # ──────────────────────────────────────────

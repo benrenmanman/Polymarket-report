@@ -1,18 +1,27 @@
 import json
 import io
+import os
+import textwrap
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")           # 无头环境，不弹窗
+from matplotlib import font_manager, rcParams
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from matplotlib import rcParams
 
-# 中文字体支持（优先使用系统常见中文字体，无则回退到 DejaVu）
-rcParams["font.sans-serif"] = [
-    "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
-    "Noto Sans CJK SC", "SimHei", "Arial Unicode MS", "DejaVu Sans",
-]
-rcParams["axes.unicode_minus"] = False   # 负号正常显示
+# 直接从字体文件读取真实内部名称，避免手写名称与字体元数据不匹配
+_WQY_FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+_CJK_FONT_NAME = None
+if os.path.exists(_WQY_FONT):
+    font_manager.fontManager.addfont(_WQY_FONT)
+    _CJK_FONT_NAME = font_manager.FontProperties(fname=_WQY_FONT).get_name()
+
+rcParams["font.family"] = "sans-serif"
+rcParams["font.sans-serif"] = (
+    [_CJK_FONT_NAME] if _CJK_FONT_NAME else []
+) + ["Noto Sans CJK SC", "SimHei", "Arial Unicode MS", "DejaVu Sans"]
+rcParams["axes.unicode_minus"] = False
+rcParams["font.size"] = 10
 from openai import OpenAI
 from config import OPENAI_API_KEY, OPENAI_MODEL   # 原有配置，保持不动
 
@@ -194,11 +203,12 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     """
     在已有的两个 Axes 上绘制高频走势图（上：价格曲线，下：变动柱状）。
     供 plot_highfreq 和 plot_all_highfreq_combined 共用。
+    All labels are in English to avoid font/encoding issues.
     """
     import datetime as _dt
 
-    mode_label = "1分钟粒度 · 近1天" if mode == "1min" else "日度 · 近30天"
-    fmt = "%m-%d %H:%M" if mode == "1min" else "%m-%d"
+    mode_label = "1min · 24h" if mode == "1min" else "Daily · 30d"
+    fmt        = "%m-%d %H:%M" if mode == "1min" else "%m-%d"
 
     # 将 tz-aware datetime 转为 tz-naive，避免 matplotlib 兼容性问题
     if hasattr(df["datetime"].dtype, "tz") and df["datetime"].dt.tz is not None:
@@ -206,34 +216,55 @@ def _draw_highfreq_axes(ax1, ax2, df: pd.DataFrame, question: str, mode: str):
     else:
         ts = df["datetime"]
 
+    price_now  = df["price"].iloc[-1]
+    price_open = df["price"].iloc[0]
+    chg        = price_now - price_open
+    chg_color  = "#2ecc71" if chg >= 0 else "#e74c3c"
+    chg_sign   = "+" if chg >= 0 else ""
+
     # ── 上图：价格走势 ──
-    ax1.plot(ts, df["price"],
-             color="#4f8ef7", linewidth=1.2, label="YES 概率")
-    ax1.fill_between(ts, df["price"], alpha=0.10, color="#4f8ef7")
-    ax1.set_ylim(
-        max(0, df["price"].min() - 0.05),
-        min(1, df["price"].max() + 0.05),
-    )
+    ax1.plot(ts, df["price"], color="#4f8ef7", linewidth=1.5, label="YES prob.", zorder=3)
+    ax1.fill_between(ts, df["price"], alpha=0.12, color="#4f8ef7")
+    y_lo = max(0.0, df["price"].min() - 0.06)
+    y_hi = min(1.0, df["price"].max() + 0.06)
+    ax1.set_ylim(y_lo, y_hi)
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.0%}"))
-    ax1.set_ylabel("隐含概率")
-    ax1.set_title(f"{question}（{mode_label}）", fontsize=10, fontweight="bold")
-    ax1.legend(fontsize=9)
-    ax1.grid(True, alpha=0.3)
+    ax1.set_ylabel("Prob.", fontsize=9, labelpad=4)
+
+    # 标题：英文问题 + 粒度，自动换行防溢出
+    title_text = textwrap.fill(f"{question}  [{mode_label}]", width=72)
+    ax1.set_title(title_text, fontsize=9, fontweight="bold", pad=6, loc="left")
+
+    # 右上角：当前价格 + 涨跌幅（纯 ASCII，无需中文字体）
+    ax1.annotate(
+        f"Now {price_now:.1%}  ({chg_sign}{chg:.1%})",
+        xy=(1, 1), xycoords="axes fraction",
+        fontsize=9, ha="right", va="top",
+        color=chg_color, fontweight="bold",
+        xytext=(-4, -4), textcoords="offset points",
+    )
+    ax1.legend(fontsize=8, loc="upper left", framealpha=0.6)
+    ax1.grid(True, which="major", alpha=0.25, linestyle="--")
+    ax1.set_facecolor("#f8f9fa")
     ax1.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
-    ax1.tick_params(axis="x", rotation=30)
+    ax1.tick_params(axis="x", rotation=25, labelsize=8)
+    ax1.tick_params(axis="y", labelsize=8)
+    ax1.spines[["top", "right"]].set_visible(False)
 
     # ── 下图：价格变动柱状 ──
-    diff  = df["price"].diff()
-    # 用 datetime.timedelta 而非 pd.Timedelta，避免 matplotlib 将其解析为纳秒
-    # 1min: 1.5分钟宽；1day: 18小时宽（日线留有间隙）
-    bar_w = _dt.timedelta(minutes=1.5) if mode == "1min" else _dt.timedelta(hours=18)
+    diff   = df["price"].diff()
+    bar_w  = _dt.timedelta(minutes=1.5) if mode == "1min" else _dt.timedelta(hours=18)
     colors = ["#2ecc71" if (pd.notna(v) and v >= 0) else "#e74c3c" for v in diff]
-    ax2.bar(ts, diff, color=colors, width=bar_w, alpha=0.75)
-    ax2.axhline(0, color="gray", linewidth=0.8)
-    ax2.set_ylabel("变动量")
+    ax2.bar(ts, diff, color=colors, width=bar_w, alpha=0.80, zorder=3)
+    ax2.axhline(0, color="#888888", linewidth=0.8, zorder=2)
+    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:+.1%}"))
+    ax2.set_ylabel("Change", fontsize=9, labelpad=4)
+    ax2.set_facecolor("#f8f9fa")
     ax2.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
-    ax2.tick_params(axis="x", rotation=30)
-    ax2.grid(True, alpha=0.3)
+    ax2.tick_params(axis="x", rotation=25, labelsize=8)
+    ax2.tick_params(axis="y", labelsize=8)
+    ax2.grid(True, which="major", alpha=0.25, linestyle="--")
+    ax2.spines[["top", "right"]].set_visible(False)
 
 
 def plot_highfreq(df: pd.DataFrame, question: str,
@@ -245,13 +276,15 @@ def plot_highfreq(df: pd.DataFrame, question: str,
     if df.empty:
         return b""
 
-    fig, axes = plt.subplots(2, 1, figsize=(12, 7),
-                              gridspec_kw={"height_ratios": [3, 1]})
+    fig, axes = plt.subplots(2, 1, figsize=(13, 7),
+                              gridspec_kw={"height_ratios": [3, 1], "hspace": 0.45})
+    fig.patch.set_facecolor("#ffffff")
     _draw_highfreq_axes(axes[0], axes[1], df, question, mode)
-    plt.tight_layout()
+    fig.tight_layout()
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+                facecolor=fig.get_facecolor())
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -279,32 +312,32 @@ def plot_all_highfreq_combined(entries: list) -> bytes:
         return b""
 
     n = len(panels)
-    # 每个 panel 占 2 行（上：价格 3份，下：变动 1份）
+    # 每个 panel 占 2 行（上：价格曲线 3份，下：涨跌柱 1份）
     height_ratios = []
     for _ in panels:
         height_ratios += [3, 1]
 
     fig, all_axes = plt.subplots(
         n * 2, 1,
-        figsize=(12, 5 * n),
-        gridspec_kw={"height_ratios": height_ratios},
+        figsize=(13, 5.2 * n),
+        gridspec_kw={"height_ratios": height_ratios, "hspace": 0.55},
     )
     # 确保 all_axes 始终是列表
-    if n * 2 == 1:
-        all_axes = [all_axes]
-    else:
-        all_axes = list(all_axes)
+    all_axes = [all_axes] if n * 2 == 1 else list(all_axes)
 
-    fig.suptitle("Polymarket 市场走势报告", fontsize=13, fontweight="bold", y=1.002)
+    fig.patch.set_facecolor("#ffffff")
 
     for i, (question, mode, df) in enumerate(panels):
         ax1 = all_axes[i * 2]
         ax2 = all_axes[i * 2 + 1]
         _draw_highfreq_axes(ax1, ax2, df, question, mode)
 
-    plt.tight_layout()
+    fig.tight_layout()
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+    # 面板越多 DPI 越低，确保合并长图不超过企微 2 MB 图片限制
+    dpi = max(72, 120 - n * 4)
+    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight",
+                facecolor="#ffffff")
     plt.close(fig)
     buf.seek(0)
     return buf.read()
