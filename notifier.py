@@ -7,8 +7,8 @@ from config import WECOM_WEBHOOK, CORP_ID, CORP_SECRET, AGENT_ID
 # template_card horizontal_content_list 最多支持 6 条
 _CARD_MAX_ITEMS = 6
 
-# 企业微信 Markdown 消息字符数上限
-_MD_MAX_LEN = 4096
+# 企业微信 Markdown 消息 UTF-8 字节数上限
+_MD_MAX_BYTES = 4096
 
 # ── access_token 本地缓存（进程内有效）──
 _token_cache: dict = {"token": "", "expires_at": 0.0}
@@ -196,22 +196,23 @@ def send_markdown(content: str):
 def send_long_markdown(content: str) -> None:
     """
     发送可能超长的 Markdown 消息。
-    若内容超过 4096 字符，按行切割为多段依次发送。
+    企微限制为 4096 字节（UTF-8），中文字符每个占 3 字节。
+    若内容超限，按行切割为多段依次发送。
     """
-    if len(content) <= _MD_MAX_LEN:
+    if len(content.encode("utf-8")) <= _MD_MAX_BYTES:
         send_markdown(content)
         return
     lines = content.split("\n")
     chunk: list[str] = []
-    chunk_len = 0
+    chunk_bytes = 0
     for line in lines:
-        line_len = len(line) + 1  # +1 for \n
-        if chunk_len + line_len > _MD_MAX_LEN and chunk:
+        line_bytes = len(line.encode("utf-8")) + 1  # +1 for \n
+        if chunk_bytes + line_bytes > _MD_MAX_BYTES and chunk:
             send_markdown("\n".join(chunk))
             chunk = []
-            chunk_len = 0
+            chunk_bytes = 0
         chunk.append(line)
-        chunk_len += line_len
+        chunk_bytes += line_bytes
     if chunk:
         send_markdown("\n".join(chunk))
 
