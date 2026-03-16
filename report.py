@@ -50,7 +50,7 @@ def _extract_token_id(market: dict) -> str | None:
 def _compute_price_changes(df_1min, df_1day) -> dict:
     """
     从 1min（近1天）和 1day（近30天）df 中，计算当前价格与
-    5分/30分/1时/5日/14日 前的差值。不可用时值为 None。
+    5分/30分/1时/1日/3日/5日/14日 前的差值。不可用时值为 None。
     """
     def _lookup(df, delta):
         if df is None or df.empty:
@@ -67,11 +67,13 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
     elif df_1day is not None and not df_1day.empty:
         current = float(df_1day["price"].iloc[-1])
     if current is None:
-        return {"5m": None, "30m": None, "1h": None, "5d": None, "14d": None}
+        return {"5m": None, "30m": None, "1h": None, "1d": None, "3d": None, "5d": None, "14d": None}
 
     p5m  = _lookup(df_1min, pd.Timedelta(minutes=5))
     p30m = _lookup(df_1min, pd.Timedelta(minutes=30))
     p1h  = _lookup(df_1min, pd.Timedelta(hours=1))
+    p1d  = _lookup(df_1day, pd.Timedelta(days=1))
+    p3d  = _lookup(df_1day, pd.Timedelta(days=3))
     p5d  = _lookup(df_1day, pd.Timedelta(days=5))
     p14d = _lookup(df_1day, pd.Timedelta(days=14))
 
@@ -79,6 +81,8 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
         "5m":  (current - p5m)  if p5m  is not None else None,
         "30m": (current - p30m) if p30m is not None else None,
         "1h":  (current - p1h)  if p1h  is not None else None,
+        "1d":  (current - p1d)  if p1d  is not None else None,
+        "3d":  (current - p3d)  if p3d  is not None else None,
         "5d":  (current - p5d)  if p5d  is not None else None,
         "14d": (current - p14d) if p14d is not None else None,
     }
@@ -92,7 +96,7 @@ def _format_changes(changes: dict) -> str:
             return f"{label}:n/a"
         return f"{label}:{v:+.1%}"
 
-    parts = [_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h"), ("5d", "5d"), ("14d", "14d")]]
+    parts = [_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h"), ("1d", "1d"), ("3d", "3d"), ("5d", "5d"), ("14d", "14d")]]
     return "  ".join(parts)
 
 
