@@ -176,7 +176,7 @@ def send_summary_card(slug_data: list, timestamp: str):
         }
         try:
             resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
-            if _parse_wecom_resp(resp).get("errcode", -1) == 0:
+            if _parse_wecom_resp(resp, "news_notice").get("errcode", -1) == 0:
                 return
         except Exception:
             pass  # 降级到 Markdown
@@ -208,12 +208,30 @@ def send_summary_card(slug_data: list, timestamp: str):
     send_long_markdown("\n".join(lines))
 
 
-def _parse_wecom_resp(resp) -> dict:
-    """安全解析企微 Webhook 响应，空 body 时返回 {}。"""
+def _parse_wecom_resp(resp, label: str = "") -> dict:
+    """
+    解析企微 Webhook 响应并打印诊断日志。
+    - 空 body → 打印警告并返回 {"errcode": -1}（不静默吞掉）
+    - 非空但解析失败 → 同上
+    - 正常 JSON → 原样返回并记录 errcode
+    """
+    tag = f"[{label}] " if label else ""
+    if not resp.content:
+        print(f"[notifier] {tag}⚠️ HTTP {resp.status_code} 响应体为空"
+              "（Webhook URL 无效、已过期或被限流）")
+        return {"errcode": -1, "errmsg": "empty response"}
     try:
-        return resp.json()
-    except Exception:
-        return {}
+        data = resp.json()
+        ec = data.get("errcode", 0)
+        if ec != 0:
+            print(f"[notifier] {tag}errcode={ec} errmsg={data.get('errmsg')}")
+        else:
+            print(f"[notifier] {tag}✓ 发送成功 HTTP {resp.status_code}")
+        return data
+    except Exception as e:
+        print(f"[notifier] {tag}⚠️ JSON 解析失败 HTTP {resp.status_code}: {e}"
+              f"  body前100字节={resp.content[:100]}")
+        return {"errcode": -1, "errmsg": str(e)}
 
 
 def send_text(content: str):
@@ -221,7 +239,7 @@ def send_text(content: str):
     payload = {"msgtype": "text", "text": {"content": content}}
     try:
         resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
-        data = _parse_wecom_resp(resp)
+        data = _parse_wecom_resp(resp, "send_text")
         if data.get("errcode", 0) != 0:
             print(f"[notifier] send_text 失败: {data}")
     except Exception as e:
@@ -229,10 +247,9 @@ def send_text(content: str):
 
 
 def send_markdown(content: str):
-    """原有函数（如有），保持不变"""
     payload = {"msgtype": "markdown", "markdown": {"content": content}}
     resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
-    data = _parse_wecom_resp(resp)
+    data = _parse_wecom_resp(resp, "send_markdown")
     if data.get("errcode", 0) != 0:
         raise RuntimeError(f"send_markdown 失败: {data}")
 
@@ -288,7 +305,7 @@ def send_image(image_bytes: bytes):
     }
     resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=15)
     resp.raise_for_status()
-    data = _parse_wecom_resp(resp)
+    data = _parse_wecom_resp(resp, "send_image")
     if data.get("errcode", 0) != 0:
         raise RuntimeError(f"send_image 失败: {data}")
 
