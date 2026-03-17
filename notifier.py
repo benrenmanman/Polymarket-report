@@ -176,7 +176,7 @@ def send_summary_card(slug_data: list, timestamp: str):
         }
         try:
             resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
-            if resp.json().get("errcode", -1) == 0:
+            if _parse_wecom_resp(resp).get("errcode", -1) == 0:
                 return
         except Exception:
             pass  # 降级到 Markdown
@@ -208,20 +208,31 @@ def send_summary_card(slug_data: list, timestamp: str):
     send_long_markdown("\n".join(lines))
 
 
+def _parse_wecom_resp(resp) -> dict:
+    """安全解析企微 Webhook 响应，空 body 时返回 {}。"""
+    try:
+        return resp.json()
+    except Exception:
+        return {}
+
+
 def send_text(content: str):
     """原有函数，保持不变"""
     payload = {"msgtype": "text", "text": {"content": content}}
-    resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
-    data = resp.json()
-    if data.get("errcode", 0) != 0:
-        print(f"[notifier] send_text 失败: {data}")
+    try:
+        resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
+        data = _parse_wecom_resp(resp)
+        if data.get("errcode", 0) != 0:
+            print(f"[notifier] send_text 失败: {data}")
+    except Exception as e:
+        print(f"[notifier] send_text 异常: {e}")
 
 
 def send_markdown(content: str):
     """原有函数（如有），保持不变"""
     payload = {"msgtype": "markdown", "markdown": {"content": content}}
     resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=10)
-    data = resp.json()
+    data = _parse_wecom_resp(resp)
     if data.get("errcode", 0) != 0:
         raise RuntimeError(f"send_markdown 失败: {data}")
 
@@ -277,7 +288,7 @@ def send_image(image_bytes: bytes):
     }
     resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=15)
     resp.raise_for_status()
-    data = resp.json()
+    data = _parse_wecom_resp(resp)
     if data.get("errcode", 0) != 0:
         raise RuntimeError(f"send_image 失败: {data}")
 
