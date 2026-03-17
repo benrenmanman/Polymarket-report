@@ -16,6 +16,7 @@ from notifier import (
     send_text,
     send_highfreq_report,
     send_summary_card,
+    send_long_markdown,
     upload_image_for_mpnews,
     upload_media_thumb,
     send_mpnews,
@@ -280,8 +281,13 @@ def _build_all_data(slugs: list) -> tuple:
                         try:
                             df = fetch_highfreq(token_id, mode=mode)
                             if not df.empty:
-                                chart = plot_highfreq(df, question, mode=mode)
-                                entry["modes"][mode] = {"df": df, "chart": chart}
+                                chart    = plot_highfreq(df, question, mode=mode)
+                                summary  = summarize_highfreq(df, mode=mode)
+                                analysis = analyze_highfreq(question, summary)
+                                entry["modes"][mode] = {
+                                    "df": df, "chart": chart,
+                                    "summary": summary, "analysis": analysis,
+                                }
                                 if mode == "1min":
                                     df_1min = df
                                 else:
@@ -528,12 +534,54 @@ def run_all_highfreq_reports(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
+    # ── 构建并发送综合报告（汇总概览 + 每市场 AI 解读，一次推送）──
+    def _pstr(yp) -> str:
+        return f"{yp:.1%}" if yp is not None else "N/A"
+
+    lines: list[str] = [
+        "## 📊 Polymarket 市场报告",
+        f"> 🕐 {timestamp}　共 **{len(slug_data)}** 个市场",
+        "",
+    ]
+
+    # —— 第一部分：概览价格表 ——
+    for d in slug_data:
+        yp    = d.get("yes_price")
+        color = "info" if (yp is not None and yp >= 0.5) else "warning"
+        if d.get("is_multi") and d.get("sub_options"):
+            lines.append(f"**{d['question']}**")
+            for opt in d["sub_options"]:
+                p = _pstr(opt.get("yes_price"))
+                lines.append(f'> {opt["question"]}　<font color="info">{p}</font>')
+                chg = opt.get("changes_str", "").strip()
+                if chg:
+                    lines.append(f'> <font color="comment">{chg}</font>')
+        else:
+            lines.append(f'**{d["question"]}**　<font color="{color}">{_pstr(yp)}</font>')
+            chg = d.get("changes_str", "").strip()
+            if chg:
+                lines.append(f'> <font color="comment">{chg}</font>')
+        lines.append("")
+
+    # —— 第二部分：每市场 AI 走势解读 ——
+    lines += ["---", "**📈 走势解读**", ""]
+    for entry in all_entries:
+        has_any = any(entry["modes"].get(m, {}).get("analysis") for m in ["1min", "1day"])
+        if not has_any:
+            continue
+        lines.append(f"**{entry['question']}**")
+        for mode, label in [("1min", "近1天"), ("1day", "近30天")]:
+            data = entry["modes"].get(mode)
+            if data and data.get("analysis"):
+                lines.append(f"> {label}：{data['analysis']}")
+        lines.append("")
+
     try:
-        send_summary_card(slug_data, timestamp)
-        print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
+        send_long_markdown("\n".join(lines))
+        print(f"[report] 综合报告已发送，共 {len(slug_data)} 个市场")
     except Exception as e:
-        send_text(f"⚠️ 汇总消息发送失败: {e}")
-        print(f"[report] 汇总失败: {e}")
+        send_text(f"⚠️ 综合报告发送失败: {e}")
+        print(f"[report] 综合报告失败: {e}")
 
 
 # ──────────────────────────────────────────
