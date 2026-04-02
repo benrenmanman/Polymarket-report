@@ -160,6 +160,56 @@ def flatten_market(m: dict) -> dict:
     return row
 
 
+def extract_deadline_label(question: str, slug: str) -> str:
+    """从问题文本或 slug 中提取截止日期标签，如 'Apr 7' 'Mar 31'"""
+    import re
+    # 优先从 question 中提取，如 "by April 7?" → "Apr 7"
+    m = re.search(r'by\s+([A-Za-z]+\s+\d+)', question, re.IGNORECASE)
+    if m:
+        raw = m.group(1).strip()
+        try:
+            dt = datetime.strptime(raw, "%B %d")
+            return dt.strftime("%b %-d")
+        except Exception:
+            return raw
+    # 从 slug 中提取末尾日期部分，如 "...-april-7-278" → "Apr 7"
+    m = re.search(r'-([a-z]+-\d+)(?:-\d+)?$', slug)
+    if m:
+        parts = m.group(1).split("-")
+        if len(parts) == 2:
+            try:
+                dt = datetime.strptime(f"{parts[0]} {parts[1]}", "%B %d")
+                return dt.strftime("%b %-d")
+            except Exception:
+                pass
+    return question[:20]
+
+
+def fetch_daily_yes(token_id: str) -> pd.Series:
+    """只拉全量日线，返回以日期为 index、YES 价格为值的 Series"""
+    try:
+        resp = requests.get(
+            f"{CLOB_API}/prices-history",
+            params={"market": token_id, "interval": "max", "fidelity": 1440},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        history = resp.json().get("history", [])
+        if not history:
+            return pd.Series(dtype=float)
+        df = pd.DataFrame(history).rename(columns={"t": "timestamp", "p": "price"})
+        df["date"] = pd.to_datetime(df["timestamp"], unit="s", utc=True).dt.normalize().dt.tz_localize(None)
+        df["price"] = df["price"].astype(float)
+        # 每天取最后一条（最新价）
+        df = df.sort_values("date").drop_duplicates(subset="date", keep="last")
+        return df.set_index("date")["price"]
+    except Exception as e:
+        print(f"    日线拉取失败: {e}")
+        return pd.Series(dtype=float)
+    finally:
+        time.sleep(0.3)
+
+
 def main():
     markets = fetch_market_all(SLUG)
     print(f"\n共找到 {len(markets)} 个市场")
@@ -168,9 +218,15 @@ def main():
 
     df_meta = pd.DataFrame([flatten_market(m) for m in markets])
 
-    price_sheets = {}
+    # ── 收集各市场数据 ──
+    price_sheets = {}        # 原始价格历史 sheets
+    daily_series = {}        # 用于汇总的日度 YES 概率
+
     for m in markets:
-        question = m.get("question", m.get("slug", "unknown"))[:40]
+        question = m.get("question", m.get("slug", "unknown"))
+        slug_m   = m.get("slug", "")
+        label    = extract_deadline_label(question, slug_m)
+
         tokens = m.get("clobTokenIds") or []
         if isinstance(tokens, str):
             try: tokens = json.loads(tokens)
@@ -184,22 +240,55 @@ def main():
             outcome_label = outcomes[i] if i < len(outcomes) else f"token{i}"
             df_h = fetch_price_history_full(token_id, f"{question[:20]}_{outcome_label}")
             if not df_h.empty:
-                df_h["market_question"] = question
+                df_h["market_question"] = question[:60]
                 df_h["outcome"] = outcome_label
                 df_h["token_id"] = token_id
-                key = f"price_{i}_{outcome_label[:15]}"
+                key = f"{label}_{outcome_label}"
                 price_sheets[key] = df_h
 
+            # 只取 YES（index 0）构建汇总日度序列
+            if i == 0:
+                print(f"[export] 日度汇总: {label} (YES token)")
+                s = fetch_daily_yes(token_id)
+                if not s.empty:
+                    daily_series[label] = s
+
+    # ── 构建日度概率汇总宽表 ──
+    # 按截止日期时间顺序排列各列
+    def sort_key(label):
+        try:
+            return datetime.strptime(label + " 2025", "%b %d %Y")
+        except Exception:
+            return datetime.max
+
+    sorted_labels = sorted(daily_series.keys(), key=sort_key)
+    df_daily = pd.DataFrame({lbl: daily_series[lbl] for lbl in sorted_labels})
+    df_daily.index.name = "date"
+    df_daily = df_daily.sort_index()
+    # 向前填充（节假日/无交易日用前一天价格）
+    df_daily = df_daily.ffill()
+    df_daily = df_daily.round(4)
+
+    # ── 写 Excel ──
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"polymarket_{SLUG}_{ts}.xlsx"
     print(f"\n[export] 写入 {filename} ...")
 
     with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+        # Sheet 1: 日度概率汇总（最重要，放最前）
+        df_daily_out = df_daily.reset_index()
+        df_daily_out.to_excel(writer, sheet_name="日度概率汇总(YES)", index=False)
+        print(f"  ✓ 日度概率汇总(YES)  {len(df_daily)} 行 × {len(df_daily.columns)} 列")
+
+        # Sheet 2: 市场元数据
         df_meta.to_excel(writer, sheet_name="市场元数据", index=False)
         print(f"  ✓ 市场元数据 ({len(df_meta)} 行)")
+
+        # Sheet 3+: 各市场原始价格历史
         for sheet_name, df_h in price_sheets.items():
-            df_h.to_excel(writer, sheet_name=sheet_name[:31], index=False)
-            print(f"  ✓ {sheet_name[:31]} ({len(df_h)} 行)")
+            safe = sheet_name[:31]
+            df_h.to_excel(writer, sheet_name=safe, index=False)
+            print(f"  ✓ {safe} ({len(df_h)} 行)")
 
     print(f"\n完成！文件: {filename}")
     return filename
