@@ -1,0 +1,36 @@
+name: Export Market Data to Excel
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'Market slug to export (default: us-x-iran-ceasefire-by)'
+        required: false
+        default: 'us-x-iran-ceasefire-by'
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests pandas openpyxl
+
+      - name: Run export script
+        env:
+          EXPORT_SLUG: ${{ github.event.inputs.slug }}
+        run: |
+          python export_market_excel.py
+
+      - name: Upload Excel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: polymarket-export-${{ github.event.inputs.slug }}
+          path: "*.xlsx"
+          retention-days: 7
