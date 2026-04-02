@@ -21,27 +21,38 @@ def fetch_market_all(slug: str):
     slug = slug.strip()
     print(f"[export] 查询 slug={repr(slug)}")
 
-    # Level 1: 直接查 market slug
+    # Level 1: 直接查 market slug，严格验证返回结果的 slug 字段
     try:
         resp = requests.get(f"{GAMMA_API}/markets", params={"slug": slug}, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         if data:
             result = data if isinstance(data, list) else [data]
-            print(f"[export] L1 找到 {len(result)} 条")
-            return result
+            # 只保留 slug 字段完全匹配的记录，避免 API 返回默认列表
+            matched = [m for m in result if m.get("slug") == slug]
+            if matched:
+                print(f"[export] L1 精确匹配 {len(matched)} 条")
+                return matched
+            else:
+                print(f"[export] L1 返回 {len(result)} 条但 slug 均不匹配，跳过")
     except Exception as e:
         print(f"[export] L1 失败: {e}")
 
-    # Level 2: 查 group_slug
+    # Level 2: 查 group_slug，验证 groupSlug 字段
     try:
         resp = requests.get(f"{GAMMA_API}/markets", params={"group_slug": slug}, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         if data:
             result = data if isinstance(data, list) else [data]
-            print(f"[export] L2 找到 {len(result)} 条")
-            return result
+            matched = [m for m in result if m.get("groupSlug") == slug or m.get("group_slug") == slug]
+            if matched:
+                print(f"[export] L2 精确匹配 {len(matched)} 条")
+                return matched
+            elif result:
+                # group_slug 查询结果本身就是该 group 的子市场，直接使用
+                print(f"[export] L2 返回 {len(result)} 条（子市场）")
+                return result
     except Exception as e:
         print(f"[export] L2 失败: {e}")
 
