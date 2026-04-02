@@ -134,7 +134,7 @@ def fetch_price_history_full(token_id: str, label: str = "") -> pd.DataFrame:
         return pd.DataFrame(columns=["timestamp", "price", "datetime", "granularity"])
 
     df = pd.concat(frames, ignore_index=True)
-    df["datetime"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+    df["datetime"] = pd.to_datetime(df["timestamp"], unit="s", utc=True).dt.tz_localize(None)
     df["price"] = df["price"].astype(float)
     df = df.sort_values(["granularity", "datetime"]).reset_index(drop=True)
     return df
