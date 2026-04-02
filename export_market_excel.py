@@ -45,31 +45,41 @@ def fetch_market_all(slug: str):
         data = resp.json()
         if data:
             result = data if isinstance(data, list) else [data]
+            slugs_returned = [m.get("groupSlug") or m.get("group_slug") for m in result[:3]]
+            print(f"[export] L2 返回 {len(result)} 条，前3个groupSlug: {slugs_returned}")
             matched = [m for m in result if m.get("groupSlug") == slug or m.get("group_slug") == slug]
             if matched:
                 print(f"[export] L2 精确匹配 {len(matched)} 条")
                 return matched
-            elif result:
-                # group_slug 查询结果本身就是该 group 的子市场，直接使用
-                print(f"[export] L2 返回 {len(result)} 条（子市场）")
-                return result
+            else:
+                print(f"[export] L2 slug 均不匹配，跳过")
     except Exception as e:
         print(f"[export] L2 失败: {e}")
 
-    # Level 3: 查 events
+    # Level 3: 查 events，验证 event slug
     try:
         resp = requests.get(f"{GAMMA_API}/events", params={"slug": slug}, timeout=15)
         resp.raise_for_status()
         events = resp.json()
+        print(f"[export] L3 events 返回 {len(events) if isinstance(events, list) else 1} 条")
         if events:
             event = events[0] if isinstance(events, list) else events
+            event_slug = event.get("slug", "")
+            print(f"[export] L3 event slug={repr(event_slug)}, 期望={repr(slug)}")
             markets = event.get("markets", [])
-            print(f"[export] L3 event 找到 {len(markets)} 个子市场")
-            return markets
+            if event_slug == slug and markets:
+                print(f"[export] L3 event 匹配，找到 {len(markets)} 个子市场")
+                return markets
+            elif markets and not event_slug:
+                print(f"[export] L3 event slug 为空，返回 {len(markets)} 个子市场")
+                return markets
+            else:
+                print(f"[export] L3 event slug 不匹配或无子市场，跳过")
     except Exception as e:
         print(f"[export] L3 失败: {e}")
 
-    raise ValueError(f"未找到 slug='{slug}' 对应的市场")
+    raise ValueError(f"未找到 slug='{slug}' 对应的市场（三级查询均无精确匹配）\n"
+                     f"请检查 slug 拼写，或该市场可能尚未上线。")
 
 
 def fetch_price_history_full(token_id: str, label: str = "") -> pd.DataFrame:
