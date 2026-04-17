@@ -166,20 +166,25 @@ def send_summary_card(slug_data: list, timestamp: str):
             return []
         return [f"> {'  '.join(parts)}"]
 
-    lines = ["## 📊 Polymarket 市场概览", f"> {timestamp}", ""]
+    # 为避免超长时"按行"切分把单个市场拆到两条消息里（例如只剩
+    # "5d:-3.0%  14d:-4.0%" 孤零零出现），把每个市场构建为独立的 section，
+    # 统一由 _send_sections 按市场边界打包发送。
+    preamble = ["## 📊 Polymarket 市场概览", f"> {timestamp}"]
+    sections: list[list[str]] = []
     for d in slug_data:
+        sec: list[str] = []
         if d.get("is_multi") and d.get("sub_options"):
-            lines.append(f"**{d['question']}**")
+            sec.append(f"**{d['question']}**")
             for opt in d["sub_options"]:
                 price = _price_str(opt.get("yes_price"))
-                lines.append(f"> {opt['question']}：**{price}**")
-                lines.extend(_change_lines(opt.get("changes_fmt")))
+                sec.append(f"> {opt['question']}：**{price}**")
+                sec.extend(_change_lines(opt.get("changes_fmt")))
         else:
             price = _price_str(d.get("yes_price"))
-            lines.append(f"**{d['question']}：{price}**")
-            lines.extend(_change_lines(d.get("changes_fmt")))
-        lines.append("")  # 市场之间空行
-    send_long_markdown("\n".join(lines))
+            sec.append(f"**{d['question']}：{price}**")
+            sec.extend(_change_lines(d.get("changes_fmt")))
+        sections.append(sec)
+    _send_sections(preamble, sections)
 
 
 def send_text(content: str):
@@ -198,6 +203,48 @@ def send_markdown(content: str):
     data = resp.json()
     if data.get("errcode", 0) != 0:
         raise RuntimeError(f"send_markdown 失败: {data}")
+
+
+def _send_sections(preamble: list[str], sections: list[list[str]]) -> None:
+    """
+    按 section（单个市场）为最小单位打包发送 Markdown，保证：
+      1. 单个市场永远不会被拆到两条消息里；
+      2. 每条消息都带上 preamble（标题 + 时间戳），即便是续篇也有上下文；
+      3. 贪心合并 sections 至接近 4096 字节上限。
+    用于 send_summary_card，替代"按行盲切"的 send_long_markdown。
+    """
+    if not sections:
+        send_markdown("\n".join(preamble))
+        return
+
+    header       = "\n".join(preamble)
+    header_bytes = len(header.encode("utf-8")) + 2  # +2: 头与正文之间的空行
+
+    buf: list[list[str]] = []
+    used = header_bytes
+
+    def _flush():
+        nonlocal buf, used
+        if not buf:
+            return
+        body = "\n\n".join("\n".join(s) for s in buf)
+        send_markdown(f"{header}\n\n{body}")
+        buf = []
+        used = header_bytes
+
+    for sec in sections:
+        sec_bytes = len("\n".join(sec).encode("utf-8")) + 2  # +2: section 间空行
+        # 单个 section 本身就超限的极端情况：单独一条发（仍好于被切碎）
+        if sec_bytes + header_bytes > _MD_MAX_BYTES:
+            _flush()
+            send_markdown(f"{header}\n\n" + "\n".join(sec))
+            continue
+        if used + sec_bytes > _MD_MAX_BYTES and buf:
+            _flush()
+        buf.append(sec)
+        used += sec_bytes
+
+    _flush()
 
 
 def send_long_markdown(content: str) -> None:
