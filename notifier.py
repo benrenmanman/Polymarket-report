@@ -155,17 +155,16 @@ def send_summary_card(slug_data: list, timestamp: str):
             pass   # 降级到 Markdown
 
     # ── 降级：Markdown，每个市场独立区块 ──
-    # 变动行拆为"短期/中长期"两行，|Δ|<0.5% 已在 report 层过滤；
-    # 上涨用 warning（橙红），下跌用 info（绿）。
+    # 变化合并到一行（短期在前、趋势在后），|Δ|<0.5% 已在 report 层过滤；
+    # 上涨红、下跌绿（见 report._format_changes）。每个字段自带 5d:/14d: 等
+    # 时长标签，无需再前置"短期/趋势"二字。
     def _change_lines(fmt: dict | str) -> list[str]:
         if not isinstance(fmt, dict):
             return []
-        out = []
-        if fmt.get("short"):
-            out.append(f"> 短期 {fmt['short']}")
-        if fmt.get("long"):
-            out.append(f"> 趋势 {fmt['long']}")
-        return out
+        parts = [s for s in (fmt.get("short"), fmt.get("long")) if s]
+        if not parts:
+            return []
+        return [f"> {'  '.join(parts)}"]
 
     lines = ["## 📊 Polymarket 市场概览", f"> {timestamp}", ""]
     for d in slug_data:
