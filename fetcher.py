@@ -27,13 +27,13 @@ def _is_active_market(m: dict) -> bool:
 
 def fetch_market(slug: str) -> dict | list:
     """
-    三级降级查询，兼容单市场和多选项市场。
+    两级降级查询，兼容单市场和多选项市场。严格验证返回的 slug 字段。
     返回：dict（单市场）或 list（多选项子市场列表）
     """
     slug = slug.strip()
     print(f"[fetcher] fetch_market slug={repr(slug)}")
 
-    # Level 1: 直接查 market slug
+    # Level 1: 直接查 market slug，精确匹配
     try:
         resp = requests.get(
             f"{GAMMA_API}/markets",
@@ -42,32 +42,15 @@ def fetch_market(slug: str) -> dict | list:
         )
         resp.raise_for_status()
         data = resp.json()
-        print(f"[fetcher] L1 返回条数: {len(data) if isinstance(data, list) else 1}")
-        if data:
-            return data[0] if isinstance(data, list) else data
+        items = data if isinstance(data, list) else ([data] if data else [])
+        matched = [m for m in items if m.get("slug") == slug]
+        print(f"[fetcher] L1 返回 {len(items)} 条，精确匹配 {len(matched)} 条")
+        if matched:
+            return matched[0]
     except Exception as e:
         print(f"[fetcher] L1 失败: {e}")
 
-    # Level 2: 查 group_slug
-    try:
-        resp = requests.get(
-            f"{GAMMA_API}/markets",
-            params={"group_slug": slug},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        print(f"[fetcher] L2 返回条数（过滤前）: {len(data) if isinstance(data, list) else 0}")
-        if data:
-            markets = data if isinstance(data, list) else [data]
-            markets = [m for m in markets if _is_active_market(m)]
-            print(f"[fetcher] L2 返回条数（过滤后）: {len(markets)}")
-            if markets:
-                return markets
-    except Exception as e:
-        print(f"[fetcher] L2 失败: {e}")
-
-    # Level 3: 查 events
+    # Level 2: 查 events，精确匹配 event slug，返回所有子市场
     try:
         resp = requests.get(
             f"{GAMMA_API}/events",
@@ -76,26 +59,21 @@ def fetch_market(slug: str) -> dict | list:
         )
         resp.raise_for_status()
         events = resp.json()
-        print(f"[fetcher] L3 返回条数: {len(events) if isinstance(events, list) else 1}")
-        if events:
-            event   = events[0] if isinstance(events, list) else events
-            markets = event.get("markets", [])
-            print(f"[fetcher] L3 子市场数量（过滤前）: {len(markets)}")
-            if markets:
-                sample = markets[0]
-                print(f"[fetcher] L3 样本字段: {list(sample.keys())}")
-                print(f"[fetcher] L3 样本 active={sample.get('active')} "
-                      f"closed={sample.get('closed')} "
-                      f"archived={sample.get('archived')} "
-                      f"endDateIso={sample.get('endDateIso')}")
-            markets = [m for m in markets if _is_active_market(m)]
-            print(f"[fetcher] L3 子市场数量（过滤后）: {len(markets)}")
-            if markets:
-                return markets
+        items = events if isinstance(events, list) else ([events] if events else [])
+        print(f"[fetcher] L2 返回 {len(items)} 个 event")
+        for ev in items:
+            ev_slug = ev.get("slug", "")
+            markets = ev.get("markets", [])
+            print(f"[fetcher] L2 event slug={repr(ev_slug)}, 子市场={len(markets)}")
+            if ev_slug == slug and markets:
+                markets = [m for m in markets if _is_active_market(m)]
+                print(f"[fetcher] L2 精确匹配，活跃子市场={len(markets)}")
+                if markets:
+                    return markets
     except Exception as e:
-        print(f"[fetcher] L3 失败: {e}")
+        print(f"[fetcher] L2 失败: {e}")
 
-    raise ValueError(f"未找到 slug='{slug}' 对应的市场（三级查询均失败）")
+    raise ValueError(f"未找到 slug='{slug}' 对应的市场（两级查询均失败）")
 
 
 def fetch_markets_batch(slugs: list) -> dict:
