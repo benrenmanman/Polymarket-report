@@ -1,4 +1,5 @@
 import json
+import re
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from history import fetch_highfreq
@@ -123,6 +124,17 @@ def _apply_translations(slug_data: list) -> None:
             opt["question"] = trans
 
 
+def _sort_sub_options_by_date(slug_data: list) -> None:
+    """Sort sub_options within each market by ascending calendar date (月/日)."""
+    def _date_key(opt):
+        m = re.search(r'(\d+)月(\d+)日', opt.get("question", ""))
+        return (int(m.group(1)), int(m.group(2))) if m else (99, 99)
+
+    for d in slug_data:
+        if d.get("sub_options"):
+            d["sub_options"].sort(key=_date_key)
+
+
 # ──────────────────────────────────────────
 # 内部：对单个子市场发送高频报告
 # ──────────────────────────────────────────
@@ -195,6 +207,7 @@ def run_slugs_summary(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
+    _sort_sub_options_by_date(slug_data)
     send_summary_card(slug_data, timestamp)
     print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
 
@@ -410,6 +423,8 @@ def build_and_send_mpnews_report(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
+    _sort_sub_options_by_date(slug_data)
+
     # ── 2. 收集详细高频数据 ──
     all_entries = _collect_all_highfreq_data(slugs)
 
@@ -527,6 +542,8 @@ def run_all_highfreq_reports(slugs: list):
             entry["question"] = trans_map.get(entry["question"], entry["question"])
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
+
+    _sort_sub_options_by_date(slug_data)
 
     try:
         send_summary_card(slug_data, timestamp)
