@@ -89,16 +89,32 @@ def _compute_price_changes(df_1min, df_1day) -> dict:
     }
 
 
-def _format_changes(changes: dict) -> str:
-    """将变化字典格式化为紧凑的英文标签字符串，供概览使用。"""
+# |Δ| 低于此阈值视为"基本无变化"，直接省略，避免噪音。
+_CHANGE_THRESHOLD = 0.005  # 0.5%
+
+
+def _format_changes(changes: dict) -> dict:
+    """
+    将变化字典格式化为两行彩色 Markdown 字符串：短期（5m/30m/1h）和中长期
+    （1d/3d/5d/14d）。|Δ| < 0.5% 的字段直接省略。上涨用 warning（橙红），
+    下跌用 info（绿），符合 A 股颜色直觉。
+
+    返回 {"short": str, "long": str}，任一行可能为空串。
+    """
     def _one(key, label):
         v = changes.get(key)
-        if v is None:
-            return f"{label}:n/a"
-        return f"{label}:{v:+.1%}"
+        if v is None or abs(v) < _CHANGE_THRESHOLD:
+            return None
+        color = "warning" if v > 0 else "info"
+        return f'<font color="{color}">{label}:{v:+.1%}</font>'
 
-    parts = [_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h"), ("1d", "1d"), ("3d", "3d"), ("5d", "5d"), ("14d", "14d")]]
-    return "  ".join(parts)
+    short_parts = [p for p in (_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h")]) if p]
+    long_parts  = [p for p in (_one(k, l) for k, l in [("1d", "1d"), ("3d", "3d"), ("5d", "5d"), ("14d", "14d")]) if p]
+
+    return {
+        "short": "  ".join(short_parts),
+        "long":  "  ".join(long_parts),
+    }
 
 
 def _apply_translations(slug_data: list) -> None:
@@ -124,15 +140,38 @@ def _apply_translations(slug_data: list) -> None:
             opt["question"] = trans
 
 
-def _sort_sub_options_by_date(slug_data: list) -> None:
-    """Sort sub_options within each market by ascending calendar date (月/日)."""
-    def _date_key(opt):
+def _filter_and_sort_sub_options(slug_data: list) -> None:
+    """
+    过滤已过期（月/日早于今日）的子选项，再按日期升序排序。
+    对跨年场景（今日距该日期 > 180 天）视为明年到期，保留。
+    """
+    beijing_tz = timezone(timedelta(hours=8))
+    today      = datetime.now(beijing_tz)
+
+    def _parse_date(opt):
         m = re.search(r'(\d+)月(\d+)日', opt.get("question", ""))
-        return (int(m.group(1)), int(m.group(2))) if m else (99, 99)
+        return (int(m.group(1)), int(m.group(2))) if m else None
+
+    def _is_past_due(opt) -> bool:
+        date = _parse_date(opt)
+        if date is None:
+            return False
+        try:
+            candidate = datetime(today.year, date[0], date[1], tzinfo=today.tzinfo)
+        except ValueError:
+            return False
+        days_delta = (candidate.date() - today.date()).days
+        if days_delta >= 0:
+            return False
+        # 落在过去且差距 > 180 天时，视为明年到期（跨年），保留
+        return days_delta >= -180
 
     for d in slug_data:
-        if d.get("sub_options"):
-            d["sub_options"].sort(key=_date_key)
+        if not d.get("sub_options"):
+            continue
+        d["sub_options"] = [o for o in d["sub_options"] if not _is_past_due(o)]
+        d["sub_options"].sort(key=lambda o: _parse_date(o) or (99, 99))
+        d["sub_count"]   = len(d["sub_options"])
 
 
 # ──────────────────────────────────────────
@@ -207,7 +246,7 @@ def run_slugs_summary(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    _sort_sub_options_by_date(slug_data)
+    _filter_and_sort_sub_options(slug_data)
     send_summary_card(slug_data, timestamp)
     print(f"[report] 汇总消息已发送，共 {len(slug_data)} 个市场")
 
@@ -264,7 +303,7 @@ def run_highfreq_report(slug: str, mode: str = "1min"):
 def _build_all_data(slugs: list) -> tuple:
     """
     一次遍历，同时构建：
-      slug_data  : 概览列表（含 changes_str 字段）
+      slug_data  : 概览列表（含 changes_fmt 字段）
       all_entries: 高频列表（含 df、chart，供合并长图）
     返回 (slug_data, all_entries)
     """
@@ -312,7 +351,7 @@ def _build_all_data(slugs: list) -> tuple:
                     "question":    question,
                     "yes_price":   yes_price,
                     "changes":     changes,
-                    "changes_str": _format_changes(changes),
+                    "changes_fmt": _format_changes(changes),
                 })
 
             m = sub_markets[0]
@@ -325,7 +364,7 @@ def _build_all_data(slugs: list) -> tuple:
                 "sub_count":   len(sub_markets),
                 "sub_options": sub_options_out if is_multi else [],
                 "changes":     top.get("changes", {}),
-                "changes_str": top.get("changes_str", ""),
+                "changes_fmt": top.get("changes_fmt", {"short": "", "long": ""}),
             })
 
         except Exception as e:
@@ -333,7 +372,7 @@ def _build_all_data(slugs: list) -> tuple:
             slug_data.append({
                 "slug": slug, "question": slug, "yes_price": None,
                 "is_multi": False, "sub_count": 0, "sub_options": [],
-                "changes": {}, "changes_str": "",
+                "changes": {}, "changes_fmt": {"short": "", "long": ""},
             })
 
     return slug_data, all_entries
@@ -423,7 +462,7 @@ def build_and_send_mpnews_report(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    _sort_sub_options_by_date(slug_data)
+    _filter_and_sort_sub_options(slug_data)
 
     # ── 2. 收集详细高频数据 ──
     all_entries = _collect_all_highfreq_data(slugs)
@@ -543,7 +582,7 @@ def run_all_highfreq_reports(slugs: list):
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    _sort_sub_options_by_date(slug_data)
+    _filter_and_sort_sub_options(slug_data)
 
     try:
         send_summary_card(slug_data, timestamp)

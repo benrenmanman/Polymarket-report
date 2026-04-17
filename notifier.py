@@ -112,14 +112,23 @@ def send_summary_card(slug_data: list, timestamp: str):
     def _price_str(yp) -> str:
         return f"{yp:.1%}" if yp is not None else "N/A"
 
+    def _top_options(sub_options: list, n: int = 2) -> list:
+        """按 YES 概率倒序取前 N 个子选项（仅保留有价的项）。"""
+        return sorted(
+            (o for o in sub_options if o.get("yes_price") is not None),
+            key=lambda o: o["yes_price"],
+            reverse=True,
+        )[:n]
+
     # ── 将 slug_data 展开为平铺的 (label, value) 列表 ──
+    # 注：template_card 的 keyname 字段企业微信侧有长度限制，保守截断到 30 字符。
     flat_items: list[tuple[str, str]] = []
     for d in slug_data:
         if d.get("is_multi") and d.get("sub_options"):
             for opt in d["sub_options"]:
-                flat_items.append((opt["question"][:24], _price_str(opt.get("yes_price"))))
+                flat_items.append((opt["question"][:30], _price_str(opt.get("yes_price"))))
         else:
-            flat_items.append((d["question"][:24], _price_str(d.get("yes_price"))))
+            flat_items.append((d["question"][:30], _price_str(d.get("yes_price"))))
 
     n_slugs = len(slug_data)
 
@@ -153,23 +162,37 @@ def send_summary_card(slug_data: list, timestamp: str):
         except Exception:
             pass   # 降级到 Markdown
 
-    # ── 降级：Markdown，每个市场独立区块，变动行用代码格式防乱码 ──
+    # ── 降级：Markdown，每个市场独立区块 ──
+    # 变动行拆为"短期/中长期"两行，|Δ|<0.5% 已在 report 层过滤；
+    # 上涨用 warning（橙红），下跌用 info（绿）。
+    def _change_lines(fmt: dict | str) -> list[str]:
+        if not isinstance(fmt, dict):
+            return []
+        out = []
+        if fmt.get("short"):
+            out.append(f"> 短期 {fmt['short']}")
+        if fmt.get("long"):
+            out.append(f"> 趋势 {fmt['long']}")
+        return out
+
     lines = ["## 📊 Polymarket 市场概览", f"> {timestamp}", ""]
     for d in slug_data:
         if d.get("is_multi") and d.get("sub_options"):
             lines.append(f"**{d['question']}**")
+            top = _top_options(d["sub_options"], n=2)
+            if top:
+                top_str = " · ".join(
+                    f"{o['question']} **{_price_str(o['yes_price'])}**" for o in top
+                )
+                lines.append(f"> 🔝 {top_str}")
             for opt in d["sub_options"]:
                 price = _price_str(opt.get("yes_price"))
-                chg   = opt.get("changes_str", "").strip()
                 lines.append(f"> {opt['question']}：**{price}**")
-                if chg:
-                    lines.append(f"> `{chg}`")
+                lines.extend(_change_lines(opt.get("changes_fmt")))
         else:
             price = _price_str(d.get("yes_price"))
-            chg   = d.get("changes_str", "").strip()
             lines.append(f"**{d['question']}：{price}**")
-            if chg:
-                lines.append(f"> `{chg}`")
+            lines.extend(_change_lines(d.get("changes_fmt")))
         lines.append("")  # 市场之间空行
     send_long_markdown("\n".join(lines))
 
