@@ -112,14 +112,6 @@ def send_summary_card(slug_data: list, timestamp: str):
     def _price_str(yp) -> str:
         return f"{yp:.1%}" if yp is not None else "N/A"
 
-    def _top_options(sub_options: list, n: int = 2) -> list:
-        """按 YES 概率倒序取前 N 个子选项（仅保留有价的项）。"""
-        return sorted(
-            (o for o in sub_options if o.get("yes_price") is not None),
-            key=lambda o: o["yes_price"],
-            reverse=True,
-        )[:n]
-
     # ── 将 slug_data 展开为平铺的 (label, value) 列表 ──
     # 注：template_card 的 keyname 字段企业微信侧有长度限制，保守截断到 30 字符。
     flat_items: list[tuple[str, str]] = []
@@ -179,14 +171,6 @@ def send_summary_card(slug_data: list, timestamp: str):
     for d in slug_data:
         if d.get("is_multi") and d.get("sub_options"):
             lines.append(f"**{d['question']}**")
-            # 仅当选项 > 2 时显示"最可能"摘要（≤2 个时本身就一目了然，无需冗余）
-            if len(d["sub_options"]) > 2:
-                top = _top_options(d["sub_options"], n=2)
-                if top:
-                    top_str = " · ".join(
-                        f"{o['question']} **{_price_str(o['yes_price'])}**" for o in top
-                    )
-                    lines.append(f"> **最可能**：{top_str}")
             for opt in d["sub_options"]:
                 price = _price_str(opt.get("yes_price"))
                 lines.append(f"> {opt['question']}：**{price}**")
