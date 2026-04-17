@@ -179,12 +179,14 @@ def send_summary_card(slug_data: list, timestamp: str):
     for d in slug_data:
         if d.get("is_multi") and d.get("sub_options"):
             lines.append(f"**{d['question']}**")
-            top = _top_options(d["sub_options"], n=2)
-            if top:
-                top_str = " · ".join(
-                    f"{o['question']} **{_price_str(o['yes_price'])}**" for o in top
-                )
-                lines.append(f"> 🔝 {top_str}")
+            # 仅当选项 > 2 时显示"最可能"摘要（≤2 个时本身就一目了然，无需冗余）
+            if len(d["sub_options"]) > 2:
+                top = _top_options(d["sub_options"], n=2)
+                if top:
+                    top_str = " · ".join(
+                        f"{o['question']} **{_price_str(o['yes_price'])}**" for o in top
+                    )
+                    lines.append(f"> **最可能**：{top_str}")
             for opt in d["sub_options"]:
                 price = _price_str(opt.get("yes_price"))
                 lines.append(f"> {opt['question']}：**{price}**")

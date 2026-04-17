@@ -105,7 +105,8 @@ def _format_changes(changes: dict) -> dict:
         v = changes.get(key)
         if v is None or abs(v) < _CHANGE_THRESHOLD:
             return None
-        color = "warning" if v > 0 else "info"
+        # 涨：红（#ff0000）；跌：info（绿）。沿用 A 股直觉配色。
+        color = "#ff0000" if v > 0 else "info"
         return f'<font color="{color}">{label}:{v:+.1%}</font>'
 
     short_parts = [p for p in (_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h")]) if p]
