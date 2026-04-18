@@ -130,22 +130,32 @@ _MULTI_TITLE_DATE_RE = re.compile(
 )
 
 
-def _strip_title_date_phrase(text: str) -> str:
-    """剥离主标题中的时间限定短语，并清理残留空白。"""
-    return re.sub(r'\s+', '', _MULTI_TITLE_DATE_RE.sub('', text)).strip()
+def _rewrite_multi_title(text: str) -> str:
+    """将多选项市场主标题中的时间限定短语替换为"何时"；仅在发生替换时把句末"吗？"改为"？"。"""
+    rewritten, n = _MULTI_TITLE_DATE_RE.subn('何时', text)
+    rewritten = re.sub(r'\s+', '', rewritten).strip()
+    if n > 0:
+        if rewritten.endswith('吗？'):
+            rewritten = rewritten[:-2] + '？'
+        elif rewritten.endswith('吗?'):
+            rewritten = rewritten[:-2] + '?'
+    return rewritten
 
 
 def _apply_translations(slug_data: list) -> None:
     """
     两步翻译 slug_data 中的所有英文文本：
-    1. 批量翻译主 question（一次 AI 调用）
+    1. 批量翻译主 question（一次 AI 调用）；多选项市场的主标题
+       把日期限定短语改写为"何时"（子选项已各自携带日期）
     2. 对每个多选项市场，以已译的主问题为上下文，
        翻译 sub_options 为简短标签（每组一次 AI 调用）
     """
-    # ── 第一步：翻译主问题 ──
+    # ── 第一步：翻译主问题（多选项市场同步改写日期为"何时"） ──
     main_texts = [d["question"] for d in slug_data]
     main_translated = translate_to_chinese(main_texts)
     for d, trans in zip(slug_data, main_translated):
+        if d.get("is_multi"):
+            trans = _rewrite_multi_title(trans) or trans
         d["question"] = trans
 
     # ── 第二步：翻译各多选项的子选项（短标签） ──
@@ -156,13 +166,6 @@ def _apply_translations(slug_data: list) -> None:
         sub_translated = translate_sub_options_short(d["question"], sub_texts)
         for opt, trans in zip(d["sub_options"], sub_translated):
             opt["question"] = trans
-
-    # ── 第三步：多选项主标题剥离冗余日期（子选项已携带各自日期） ──
-    for d in slug_data:
-        if d.get("is_multi") and d.get("sub_options"):
-            stripped = _strip_title_date_phrase(d["question"])
-            if stripped:
-                d["question"] = stripped
 
 
 def _filter_and_sort_sub_options(slug_data: list) -> None:
