@@ -118,6 +118,23 @@ def _format_changes(changes: dict) -> dict:
     }
 
 
+# 多选项市场主标题中冗余的时间限定短语（子选项已各自携带日期）
+# 按最长优先排序，避免部分匹配留下孤立的年份/月份
+_MULTI_TITLE_DATE_RE = re.compile(
+    r'在?\d{4}年\d+月\d+日(?:之)?前|'  # 在2025年12月31日之前
+    r'在?\d{4}年\d+月(?:底)?(?:之)?前|'  # 在2025年12月底前
+    r'在?\d+月\d+日(?:之)?前|'         # 在12月31日前 / 4月30日前
+    r'在?\d+月(?:底)?(?:之)?前|'       # 在4月底前
+    r'在?\d{4}年(?:底)?(?:之)?前|'     # 2027年前 / 2026年底前
+    r'在?今年(?:底)?(?:之)?前'         # 今年底前
+)
+
+
+def _strip_title_date_phrase(text: str) -> str:
+    """剥离主标题中的时间限定短语，并清理残留空白。"""
+    return re.sub(r'\s+', '', _MULTI_TITLE_DATE_RE.sub('', text)).strip()
+
+
 def _apply_translations(slug_data: list) -> None:
     """
     两步翻译 slug_data 中的所有英文文本：
@@ -139,6 +156,13 @@ def _apply_translations(slug_data: list) -> None:
         sub_translated = translate_sub_options_short(d["question"], sub_texts)
         for opt, trans in zip(d["sub_options"], sub_translated):
             opt["question"] = trans
+
+    # ── 第三步：多选项主标题剥离冗余日期（子选项已携带各自日期） ──
+    for d in slug_data:
+        if d.get("is_multi") and d.get("sub_options"):
+            stripped = _strip_title_date_phrase(d["question"])
+            if stripped:
+                d["question"] = stripped
 
 
 def _filter_and_sort_sub_options(slug_data: list) -> None:
