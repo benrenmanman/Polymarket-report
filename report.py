@@ -3,7 +3,7 @@ import re
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from history import fetch_highfreq
-from fetcher import fetch_market, check_market_expired
+from fetcher import fetch_market, fetch_market_with_meta, check_market_expired
 from analyzer import (
     analyze_snapshot,
     translate_to_chinese,
@@ -233,7 +233,21 @@ def run_slugs_summary(slugs: list):
 
     for slug in slugs:
         try:
-            market = fetch_market(slug)
+            meta = fetch_market_with_meta(slug)
+            market = meta["data"]
+            if market is None:
+                slug_data.append({
+                    "slug":           slug,
+                    "question":       slug,
+                    "yes_price":      None,
+                    "is_multi":       False,
+                    "sub_count":      0,
+                    "sub_options":    [],
+                    "expired":        True,
+                    "expired_reason": meta["reason"],
+                })
+                continue
+
             if isinstance(market, list):
                 m           = market[0]
                 is_multi    = True
@@ -245,13 +259,11 @@ def run_slugs_summary(slugs: list):
                     }
                     for sub in market
                 ]
-                expired, expired_reason = False, ""
             else:
                 m           = market
                 is_multi    = False
                 sub_cnt     = 1
                 sub_options = []
-                expired, expired_reason = check_market_expired(m)
 
             slug_data.append({
                 "slug":           slug,
@@ -260,8 +272,8 @@ def run_slugs_summary(slugs: list):
                 "is_multi":       is_multi,
                 "sub_count":      sub_cnt,
                 "sub_options":    sub_options,
-                "expired":        expired,
-                "expired_reason": expired_reason,
+                "expired":        meta["expired"],
+                "expired_reason": meta["reason"],
             })
         except Exception as e:
             print(f"[report] 汇总: {slug} 获取失败: {e}")
@@ -347,14 +359,22 @@ def _build_all_data(slugs: list) -> tuple:
 
     for slug in slugs:
         try:
-            market     = fetch_market(slug)
+            meta = fetch_market_with_meta(slug)
+            market = meta["data"]
+            if market is None:
+                slug_data.append({
+                    "slug": slug, "question": slug, "yes_price": None,
+                    "is_multi": False, "sub_count": 0, "sub_options": [],
+                    "changes": {}, "changes_fmt": {"short": "", "long": ""},
+                    "expired": True, "expired_reason": meta["reason"],
+                })
+                continue
+
             sub_markets = market if isinstance(market, list) else [market]
             is_multi    = isinstance(market, list)
 
-            if is_multi:
-                slug_expired, slug_expired_reason = False, ""
-            else:
-                slug_expired, slug_expired_reason = check_market_expired(sub_markets[0])
+            slug_expired        = meta["expired"]
+            slug_expired_reason = meta["reason"]
 
             sub_options_out = []
 
@@ -475,7 +495,21 @@ def build_and_send_mpnews_report(slugs: list):
     slug_data = []
     for slug in slugs:
         try:
-            market = fetch_market(slug)
+            meta = fetch_market_with_meta(slug)
+            market = meta["data"]
+            if market is None:
+                slug_data.append({
+                    "slug":           slug,
+                    "question":       slug,
+                    "yes_price":      None,
+                    "is_multi":       False,
+                    "sub_count":      0,
+                    "sub_options":    [],
+                    "expired":        True,
+                    "expired_reason": meta["reason"],
+                })
+                continue
+
             if isinstance(market, list):
                 m           = market[0]
                 is_multi    = True
@@ -484,13 +518,11 @@ def build_and_send_mpnews_report(slugs: list):
                     {"question": sub.get("question", ""), "yes_price": _extract_yes_price(sub)}
                     for sub in market
                 ]
-                expired, expired_reason = False, ""
             else:
                 m           = market
                 is_multi    = False
                 sub_cnt     = 1
                 sub_options = []
-                expired, expired_reason = check_market_expired(m)
             slug_data.append({
                 "slug":           slug,
                 "question":       m.get("question", slug),
@@ -498,8 +530,8 @@ def build_and_send_mpnews_report(slugs: list):
                 "is_multi":       is_multi,
                 "sub_count":      sub_cnt,
                 "sub_options":    sub_options,
-                "expired":        expired,
-                "expired_reason": expired_reason,
+                "expired":        meta["expired"],
+                "expired_reason": meta["reason"],
             })
         except Exception as e:
             print(f"[report] mpnews 快照: {slug} 失败: {e}")

@@ -121,11 +121,13 @@ def send_summary_card(slug_data: list, timestamp: str):
     # 注：template_card 的 keyname 字段企业微信侧有长度限制，保守截断到 30 字符。
     flat_items: list[tuple[str, str]] = []
     for d in slug_data:
+        # 过期 slug 始终单独列一行，优先提示（不论单/多选项）
+        if d.get("expired"):
+            flat_items.append((d["question"][:30], _expired_label(d)))
+            continue
         if d.get("is_multi") and d.get("sub_options"):
             for opt in d["sub_options"]:
                 flat_items.append((opt["question"][:30], _price_str(opt.get("yes_price"))))
-        elif d.get("expired"):
-            flat_items.append((d["question"][:30], _expired_label(d)))
         else:
             flat_items.append((d["question"][:30], _price_str(d.get("yes_price"))))
 
@@ -180,17 +182,22 @@ def send_summary_card(slug_data: list, timestamp: str):
     sections: list[list[str]] = []
     for d in slug_data:
         sec: list[str] = []
-        if d.get("is_multi") and d.get("sub_options"):
+        # 过期 slug：先给出醒目提示，若仍有子选项/价格则附带最后快照
+        if d.get("expired"):
+            reason = d.get("expired_reason") or "已过期"
+            sec.append(
+                f'**{d["question"]}**：<font color="warning">⚠️ {reason}</font>'
+            )
+            if d.get("is_multi") and d.get("sub_options"):
+                for opt in d["sub_options"]:
+                    price = _price_str(opt.get("yes_price"))
+                    sec.append(f"> {opt['question']}：**{price}**")
+        elif d.get("is_multi") and d.get("sub_options"):
             sec.append(f"**{d['question']}**")
             for opt in d["sub_options"]:
                 price = _price_str(opt.get("yes_price"))
                 sec.append(f"> {opt['question']}：**{price}**")
                 sec.extend(_change_lines(opt.get("changes_fmt")))
-        elif d.get("expired"):
-            reason = d.get("expired_reason") or "已过期"
-            sec.append(
-                f'**{d["question"]}**：<font color="warning">⚠️ {reason}</font>'
-            )
         else:
             price = _price_str(d.get("yes_price"))
             sec.append(f"**{d['question']}：{price}**")
