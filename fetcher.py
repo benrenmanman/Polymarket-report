@@ -25,6 +25,28 @@ def _is_active_market(m: dict) -> bool:
     return True
 
 
+def check_market_expired(m: dict) -> tuple[bool, str]:
+    """
+    判断单个市场 dict 是否过期。返回 (expired, reason)。
+    reason 为简短中文标签，未过期时为空串。
+    """
+    if m.get("closed", False):
+        return True, "已收盘"
+    if m.get("archived", False):
+        return True, "已归档"
+    if not m.get("active", True):
+        return True, "已停用"
+    end_date = m.get("endDateIso") or m.get("end_date_iso")
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            if end_dt < datetime.now(timezone.utc):
+                return True, "已过期"
+        except Exception:
+            pass
+    return False, ""
+
+
 def fetch_market(slug: str) -> dict | list:
     """
     两级降级查询，兼容单市场和多选项市场。严格验证返回的 slug 字段。

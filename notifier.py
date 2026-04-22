@@ -112,6 +112,11 @@ def send_summary_card(slug_data: list, timestamp: str):
     def _price_str(yp) -> str:
         return f"{yp:.1%}" if yp is not None else "N/A"
 
+    def _expired_label(d: dict) -> str:
+        """已过期 slug 在 value 字段的显示文本。"""
+        reason = d.get("expired_reason") or "已过期"
+        return f"⚠️ {reason}"
+
     # ── 将 slug_data 展开为平铺的 (label, value) 列表 ──
     # 注：template_card 的 keyname 字段企业微信侧有长度限制，保守截断到 30 字符。
     flat_items: list[tuple[str, str]] = []
@@ -119,6 +124,8 @@ def send_summary_card(slug_data: list, timestamp: str):
         if d.get("is_multi") and d.get("sub_options"):
             for opt in d["sub_options"]:
                 flat_items.append((opt["question"][:30], _price_str(opt.get("yes_price"))))
+        elif d.get("expired"):
+            flat_items.append((d["question"][:30], _expired_label(d)))
         else:
             flat_items.append((d["question"][:30], _price_str(d.get("yes_price"))))
 
@@ -179,6 +186,11 @@ def send_summary_card(slug_data: list, timestamp: str):
                 price = _price_str(opt.get("yes_price"))
                 sec.append(f"> {opt['question']}：**{price}**")
                 sec.extend(_change_lines(opt.get("changes_fmt")))
+        elif d.get("expired"):
+            reason = d.get("expired_reason") or "已过期"
+            sec.append(
+                f'**{d["question"]}**：<font color="warning">⚠️ {reason}</font>'
+            )
         else:
             price = _price_str(d.get("yes_price"))
             sec.append(f"**{d['question']}：{price}**")
