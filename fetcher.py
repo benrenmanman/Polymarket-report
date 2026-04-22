@@ -25,13 +25,37 @@ def _is_active_market(m: dict) -> bool:
     return True
 
 
-def fetch_market(slug: str) -> dict | list:
+def check_market_expired(m: dict) -> tuple[bool, str]:
     """
-    两级降级查询，兼容单市场和多选项市场。严格验证返回的 slug 字段。
-    返回：dict（单市场）或 list（多选项子市场列表）
+    判断单个市场 dict 是否过期。返回 (expired, reason)。
+    reason 为简短中文标签，未过期时为空串。
+    """
+    if m.get("closed", False):
+        return True, "已收盘"
+    if m.get("archived", False):
+        return True, "已归档"
+    if not m.get("active", True):
+        return True, "已停用"
+    end_date = m.get("endDateIso") or m.get("end_date_iso")
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            if end_dt < datetime.now(timezone.utc):
+                return True, "已过期"
+        except Exception:
+            pass
+    return False, ""
+
+
+def _query_slug(slug: str) -> tuple[dict | list | None, dict | None]:
+    """
+    两级降级查询的内部实现。返回 (market_data, event_data)：
+      - market_data: dict（L1 单市场）/ list（L2 活跃子市场）/ None（均未命中）
+      - event_data : 命中 L2 时附带的事件 dict（含 closed/endDate 等元信息），否则 None
+    L1 命中不附带 event 元信息（单市场已自带过期字段）。
     """
     slug = slug.strip()
-    print(f"[fetcher] fetch_market slug={repr(slug)}")
+    print(f"[fetcher] _query_slug slug={repr(slug)}")
 
     # Level 1: 直接查 market slug，精确匹配
     try:
@@ -46,11 +70,12 @@ def fetch_market(slug: str) -> dict | list:
         matched = [m for m in items if m.get("slug") == slug]
         print(f"[fetcher] L1 返回 {len(items)} 条，精确匹配 {len(matched)} 条")
         if matched:
-            return matched[0]
+            return matched[0], None
     except Exception as e:
         print(f"[fetcher] L1 失败: {e}")
 
     # Level 2: 查 events，精确匹配 event slug，返回所有子市场
+    matched_event: dict | None = None
     try:
         resp = requests.get(
             f"{GAMMA_API}/events",
@@ -66,14 +91,60 @@ def fetch_market(slug: str) -> dict | list:
             markets = ev.get("markets", [])
             print(f"[fetcher] L2 event slug={repr(ev_slug)}, 子市场={len(markets)}")
             if ev_slug == slug and markets:
-                markets = [m for m in markets if _is_active_market(m)]
-                print(f"[fetcher] L2 精确匹配，活跃子市场={len(markets)}")
-                if markets:
-                    return markets
+                matched_event = ev
+                active = [m for m in markets if _is_active_market(m)]
+                print(f"[fetcher] L2 精确匹配，活跃子市场={len(active)}")
+                if active:
+                    return active, ev
+                # 事件命中但所有子市场均不活跃 —— 仍返回 event 作为元信息
+                break
     except Exception as e:
         print(f"[fetcher] L2 失败: {e}")
 
-    raise ValueError(f"未找到 slug='{slug}' 对应的市场（两级查询均失败）")
+    return None, matched_event
+
+
+def fetch_market(slug: str) -> dict | list:
+    """
+    两级降级查询，兼容单市场和多选项市场。严格验证返回的 slug 字段。
+    返回：dict（单市场）或 list（多选项子市场列表）
+    """
+    data, _ = _query_slug(slug)
+    if data is None:
+        raise ValueError(f"未找到 slug='{slug}' 对应的市场（两级查询均失败）")
+    return data
+
+
+def fetch_market_with_meta(slug: str) -> dict:
+    """
+    fetch_market 的扩展版本，附带过期判定。
+    返回 {'data': dict|list|None, 'expired': bool, 'reason': str}
+    - data 为 None 表示 slug 完全未命中（也视为过期，reason="slug 未找到"）
+    - 单市场：用 check_market_expired 判断市场自身字段
+    - 多选项：用 check_market_expired 判断事件级 closed/endDate 等
+    - 事件命中但所有子市场都不活跃：data=None, 但 reason 取自事件级判定
+    """
+    data, event = _query_slug(slug)
+
+    if data is None:
+        if event is not None:
+            ev_expired, ev_reason = check_market_expired(event)
+            reason = ev_reason or "全部子市场已过期"
+        else:
+            reason = "slug 未找到"
+        return {"data": None, "expired": True, "reason": reason}
+
+    if event is not None:
+        ev_expired, ev_reason = check_market_expired(event)
+        if ev_expired:
+            return {"data": data, "expired": True, "reason": ev_reason}
+
+    if isinstance(data, dict):
+        m_expired, m_reason = check_market_expired(data)
+        if m_expired:
+            return {"data": data, "expired": True, "reason": m_reason}
+
+    return {"data": data, "expired": False, "reason": ""}
 
 
 def fetch_markets_batch(slugs: list) -> dict:
