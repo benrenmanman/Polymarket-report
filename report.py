@@ -145,17 +145,21 @@ def _rewrite_multi_title(text: str) -> str:
 
 # Polymarket 部分 event.title 含字面 "..." 占位符（如
 # "Will US and Iran reach a permanent peace deal by ...?"），
-# 翻译后会出现 "在……之前" / "在...之前" 等不通顺短语，需要清掉。
-_TITLE_ELLIPSIS_RE = re.compile(r'(在)?(?:……|\.{3,}|…)(之前|前)?')
+# 翻译后会出现 "能否在……之前" 等是非问句加占位短语，整体改写为"何时"。
+_TITLE_ELLIPSIS_RE = re.compile(r'(?:能否|会否|是否)?(?:在)?(?:……|\.{3,}|…)(?:之前|前)?')
 
 
 def _clean_event_title(text: str) -> str:
-    """删除 event.title 翻译后残留的省略号占位短语，并补齐问号。"""
-    cleaned, n = _TITLE_ELLIPSIS_RE.subn('', text)
+    """把 event.title 翻译后的"能否在……之前"占位短语改写为"何时"，并归一化句末。"""
+    cleaned, n = _TITLE_ELLIPSIS_RE.subn('何时', text)
     if n == 0:
         return text
     cleaned = re.sub(r'\s+', '', cleaned).strip()
-    if cleaned and not cleaned.endswith(('？', '?')):
+    if cleaned.endswith('吗？'):
+        cleaned = cleaned[:-2] + '？'
+    elif cleaned.endswith('吗?'):
+        cleaned = cleaned[:-2] + '?'
+    elif cleaned and not cleaned.endswith(('？', '?')):
         cleaned += '？'
     return cleaned or text
 
