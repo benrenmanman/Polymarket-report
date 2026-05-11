@@ -143,6 +143,23 @@ def _rewrite_multi_title(text: str) -> str:
     return rewritten
 
 
+# Polymarket 部分 event.title 含字面 "..." 占位符（如
+# "Will US and Iran reach a permanent peace deal by ...?"），
+# 翻译后会出现 "在……之前" / "在...之前" 等不通顺短语，需要清掉。
+_TITLE_ELLIPSIS_RE = re.compile(r'(在)?(?:……|\.{3,}|…)(之前|前)?')
+
+
+def _clean_event_title(text: str) -> str:
+    """删除 event.title 翻译后残留的省略号占位短语，并补齐问号。"""
+    cleaned, n = _TITLE_ELLIPSIS_RE.subn('', text)
+    if n == 0:
+        return text
+    cleaned = re.sub(r'\s+', '', cleaned).strip()
+    if cleaned and not cleaned.endswith(('？', '?')):
+        cleaned += '？'
+    return cleaned or text
+
+
 def _apply_translations(slug_data: list) -> None:
     """
     两步翻译 slug_data 中的所有英文文本：
@@ -158,8 +175,11 @@ def _apply_translations(slug_data: list) -> None:
     main_texts = [d["question"] for d in slug_data]
     main_translated = translate_to_chinese(main_texts)
     for d, trans in zip(slug_data, main_translated):
-        if d.get("is_multi") and not d.get("use_event_title"):
-            trans = _rewrite_multi_title(trans) or trans
+        if d.get("is_multi"):
+            if d.get("use_event_title"):
+                trans = _clean_event_title(trans)
+            else:
+                trans = _rewrite_multi_title(trans) or trans
         d["question"] = trans
 
     # ── 第二步：翻译各多选项的子选项（短标签） ──
