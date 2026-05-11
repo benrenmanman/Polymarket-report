@@ -1,4 +1,5 @@
 import os
+import re
 
 # ── 敏感信息：从环境变量读取 ──
 WECOM_WEBHOOK   = os.environ["WECOM_WEBHOOK"]
@@ -15,7 +16,8 @@ AGENT_ID    = int(os.environ.get("AGENT_ID", "0"))
 MPNEWS_ENABLED = bool(CORP_ID and CORP_SECRET and AGENT_ID)
 
 # ── 市场 Slug 列表 ──
-SLUGS = [s.strip().strip("\n").strip("\r") for s in os.environ["MARKET_SLUGS"].split(",") if s.strip()]
+# 支持逗号、换行（含 \r\n）混合分隔，便于多行 Secret 配置。
+SLUGS = [s.strip() for s in re.split(r"[,\r\n]+", os.environ["MARKET_SLUGS"]) if s.strip()]
 
 # 删除内容：
 # - SUPABASE_URL / SUPABASE_KEY  （不再写数据库）
