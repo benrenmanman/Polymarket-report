@@ -143,6 +143,27 @@ def _rewrite_multi_title(text: str) -> str:
     return rewritten
 
 
+# Polymarket 部分 event.title 含字面 "..." 占位符（如
+# "Will US and Iran reach a permanent peace deal by ...?"），
+# 翻译后会出现 "能否在……之前" 等是非问句加占位短语，整体改写为"何时"。
+_TITLE_ELLIPSIS_RE = re.compile(r'(?:能否|会否|是否)?(?:在)?(?:……|\.{3,}|…)(?:之前|前)?')
+
+
+def _clean_event_title(text: str) -> str:
+    """把 event.title 翻译后的"能否在……之前"占位短语改写为"何时"，并归一化句末。"""
+    cleaned, n = _TITLE_ELLIPSIS_RE.subn('何时', text)
+    if n == 0:
+        return text
+    cleaned = re.sub(r'\s+', '', cleaned).strip()
+    if cleaned.endswith('吗？'):
+        cleaned = cleaned[:-2] + '？'
+    elif cleaned.endswith('吗?'):
+        cleaned = cleaned[:-2] + '?'
+    elif cleaned and not cleaned.endswith(('？', '?')):
+        cleaned += '？'
+    return cleaned or text
+
+
 def _apply_translations(slug_data: list) -> None:
     """
     两步翻译 slug_data 中的所有英文文本：
@@ -152,11 +173,17 @@ def _apply_translations(slug_data: list) -> None:
        翻译 sub_options 为简短标签（每组一次 AI 调用）
     """
     # ── 第一步：翻译主问题（多选项市场同步改写日期为"何时"） ──
+    # use_event_title=True 时主标题来自 Polymarket 官方 event.title，
+    # 已是泛化的多选项问法（如"特朗普会在5月31日前同意伊朗的哪些要求？"），
+    # 不再做"日期→何时"改写，保留与网站一致的呈现。
     main_texts = [d["question"] for d in slug_data]
     main_translated = translate_to_chinese(main_texts)
     for d, trans in zip(slug_data, main_translated):
         if d.get("is_multi"):
-            trans = _rewrite_multi_title(trans) or trans
+            if d.get("use_event_title"):
+                trans = _clean_event_title(trans)
+            else:
+                trans = _rewrite_multi_title(trans) or trans
         d["question"] = trans
 
     # ── 第二步：翻译各多选项的子选项（短标签） ──
@@ -252,28 +279,37 @@ def run_slugs_summary(slugs: list):
                 m           = market[0]
                 is_multi    = True
                 sub_cnt     = len(market)
+                # 优先使用 Polymarket 的 groupItemTitle 短标签（与网站一致），
+                # 缺失时回落到完整 question。
                 sub_options = [
                     {
-                        "question":  sub.get("question", ""),
+                        "question":  sub.get("groupItemTitle") or sub.get("question", ""),
                         "yes_price": _extract_yes_price(sub),
                     }
                     for sub in market
                 ]
+                # 多选项市场主标题优先使用 event.title（与网站一致），
+                # 缺失时回落到第一个子市场的 question。
+                main_question = meta.get("event_title") or m.get("question", slug)
+                use_event_title = bool(meta.get("event_title"))
             else:
-                m           = market
-                is_multi    = False
-                sub_cnt     = 1
-                sub_options = []
+                m               = market
+                is_multi        = False
+                sub_cnt         = 1
+                sub_options     = []
+                main_question   = m.get("question", slug)
+                use_event_title = False
 
             slug_data.append({
-                "slug":           slug,
-                "question":       m.get("question", slug),
-                "yes_price":      _extract_yes_price(m),
-                "is_multi":       is_multi,
-                "sub_count":      sub_cnt,
-                "sub_options":    sub_options,
-                "expired":        meta["expired"],
-                "expired_reason": meta["reason"],
+                "slug":             slug,
+                "question":         main_question,
+                "yes_price":        _extract_yes_price(m),
+                "is_multi":         is_multi,
+                "sub_count":        sub_cnt,
+                "sub_options":      sub_options,
+                "expired":          meta["expired"],
+                "expired_reason":   meta["reason"],
+                "use_event_title":  use_event_title,
             })
         except Exception as e:
             print(f"[report] 汇总: {slug} 获取失败: {e}")
@@ -379,27 +415,30 @@ def _build_all_data(slugs: list) -> tuple:
             sub_options_out = []
 
             for sub in sub_markets:
-                question  = sub.get("question", slug)
-                token_id  = _extract_token_id(sub)
-                yes_price = _extract_yes_price(sub)
+                full_question = sub.get("question", slug)
+                # 多选项：用 groupItemTitle 作为简短标签（与网站一致）；
+                # 单市场：question 本身就是完整问题，沿用。
+                short_label   = (sub.get("groupItemTitle") or full_question) if is_multi else full_question
+                token_id      = _extract_token_id(sub)
+                yes_price     = _extract_yes_price(sub)
 
                 df_1min  = pd.DataFrame()
                 df_1day = pd.DataFrame()
-                entry    = {"slug": slug, "question": question, "modes": {}}
+                entry    = {"slug": slug, "question": short_label, "modes": {}}
 
                 if token_id:
                     for mode in ["1min", "1day"]:
                         try:
                             df = fetch_highfreq(token_id, mode=mode)
                             if not df.empty:
-                                chart = plot_highfreq(df, question, mode=mode)
+                                chart = plot_highfreq(df, short_label, mode=mode)
                                 entry["modes"][mode] = {"df": df, "chart": chart}
                                 if mode == "1min":
                                     df_1min = df
                                 else:
                                     df_1day = df
                         except Exception as e:
-                            print(f"[report] {question} {mode} 失败: {e}")
+                            print(f"[report] {short_label} {mode} 失败: {e}")
 
                 all_entries.append(entry)
 
@@ -408,7 +447,7 @@ def _build_all_data(slugs: list) -> tuple:
                     df_1day if not df_1day.empty else None,
                 )
                 sub_options_out.append({
-                    "question":    question,
+                    "question":    short_label,
                     "yes_price":   yes_price,
                     "changes":     changes,
                     "changes_fmt": _format_changes(changes),
@@ -416,17 +455,25 @@ def _build_all_data(slugs: list) -> tuple:
 
             m = sub_markets[0]
             top = sub_options_out[0] if sub_options_out else {}
+            # 多选项市场主标题优先 event.title；单市场用自身 question。
+            if is_multi:
+                main_question   = meta.get("event_title") or m.get("question", slug)
+                use_event_title = bool(meta.get("event_title"))
+            else:
+                main_question   = m.get("question", slug)
+                use_event_title = False
             slug_data.append({
-                "slug":           slug,
-                "question":       m.get("question", slug),
-                "yes_price":      _extract_yes_price(m),
-                "is_multi":       is_multi,
-                "sub_count":      len(sub_markets),
-                "sub_options":    sub_options_out if is_multi else [],
-                "changes":        top.get("changes", {}),
-                "changes_fmt":    top.get("changes_fmt", {"short": "", "long": ""}),
-                "expired":        slug_expired,
-                "expired_reason": slug_expired_reason,
+                "slug":             slug,
+                "question":         main_question,
+                "yes_price":        _extract_yes_price(m),
+                "is_multi":         is_multi,
+                "sub_count":        len(sub_markets),
+                "sub_options":      sub_options_out if is_multi else [],
+                "changes":          top.get("changes", {}),
+                "changes_fmt":      top.get("changes_fmt", {"short": "", "long": ""}),
+                "expired":          slug_expired,
+                "expired_reason":   slug_expired_reason,
+                "use_event_title":  use_event_title,
             })
 
         except Exception as e:
@@ -515,21 +562,29 @@ def build_and_send_mpnews_report(slugs: list):
                 is_multi    = True
                 sub_cnt     = len(market)
                 sub_options = [
-                    {"question": sub.get("question", ""), "yes_price": _extract_yes_price(sub)}
+                    {
+                        "question":  sub.get("groupItemTitle") or sub.get("question", ""),
+                        "yes_price": _extract_yes_price(sub),
+                    }
                     for sub in market
                 ]
+                main_question   = meta.get("event_title") or m.get("question", slug)
+                use_event_title = bool(meta.get("event_title"))
             else:
-                m           = market
-                is_multi    = False
-                sub_cnt     = 1
-                sub_options = []
+                m               = market
+                is_multi        = False
+                sub_cnt         = 1
+                sub_options     = []
+                main_question   = m.get("question", slug)
+                use_event_title = False
             slug_data.append({
-                "slug":           slug,
-                "question":       m.get("question", slug),
-                "yes_price":      _extract_yes_price(m),
-                "is_multi":       is_multi,
-                "sub_count":      sub_cnt,
-                "sub_options":    sub_options,
+                "slug":             slug,
+                "question":         main_question,
+                "yes_price":        _extract_yes_price(m),
+                "is_multi":         is_multi,
+                "sub_count":        sub_cnt,
+                "sub_options":      sub_options,
+                "use_event_title":  use_event_title,
                 "expired":        meta["expired"],
                 "expired_reason": meta["reason"],
             })

@@ -118,13 +118,15 @@ def fetch_market(slug: str) -> dict | list:
 def fetch_market_with_meta(slug: str) -> dict:
     """
     fetch_market 的扩展版本，附带过期判定。
-    返回 {'data': dict|list|None, 'expired': bool, 'reason': str}
+    返回 {'data': dict|list|None, 'expired': bool, 'reason': str, 'event_title': str}
     - data 为 None 表示 slug 完全未命中（也视为过期，reason="slug 未找到"）
     - 单市场：用 check_market_expired 判断市场自身字段
     - 多选项：用 check_market_expired 判断事件级 closed/endDate 等
     - 事件命中但所有子市场都不活跃：data=None, 但 reason 取自事件级判定
+    - event_title: L2 命中事件时的官方标题（与网站显示一致），否则空串
     """
     data, event = _query_slug(slug)
+    event_title = event.get("title", "") if event else ""
 
     if data is None:
         if event is not None:
@@ -132,19 +134,19 @@ def fetch_market_with_meta(slug: str) -> dict:
             reason = ev_reason or "全部子市场已过期"
         else:
             reason = "slug 未找到"
-        return {"data": None, "expired": True, "reason": reason}
+        return {"data": None, "expired": True, "reason": reason, "event_title": event_title}
 
     if event is not None:
         ev_expired, ev_reason = check_market_expired(event)
         if ev_expired:
-            return {"data": data, "expired": True, "reason": ev_reason}
+            return {"data": data, "expired": True, "reason": ev_reason, "event_title": event_title}
 
     if isinstance(data, dict):
         m_expired, m_reason = check_market_expired(data)
         if m_expired:
-            return {"data": data, "expired": True, "reason": m_reason}
+            return {"data": data, "expired": True, "reason": m_reason, "event_title": event_title}
 
-    return {"data": data, "expired": False, "reason": ""}
+    return {"data": data, "expired": False, "reason": "", "event_title": event_title}
 
 
 def fetch_markets_batch(slugs: list) -> dict:
