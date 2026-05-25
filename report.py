@@ -205,9 +205,9 @@ def _limit_display_sub_options(slug_data: list) -> None:
     """
     按市场类型精简多选项市场展示的子选项数量（在过滤/排序之后调用）：
       · 「……哪个政党掌控？」：只保留概率最高的那个政党（top 1）
-      · 「……胜者是谁？」     ：按概率降序取前 5 名候选人
+      · 「……胜者是谁？」     ：按概率降序取前 3 名候选人
       · 「……降息几次？」     ：保留前 3 个（即 0/1/2 次）
-      · 多日期市场           ：按日期升序后只保留最早的 4 个日期
+      · 多日期市场           ：按日期升序后只保留最早的 3 个日期
     其余多选项市场（如"会同意哪些要求"）保持原样，全部展示。
     """
     for d in slug_data:
@@ -224,11 +224,11 @@ def _limit_display_sub_options(slug_data: list) -> None:
         if "政党" in q or all("党" in o.get("question", "") for o in subs):
             subs = _by_prob_desc(subs)[:1]
         elif "谁" in q or "胜者" in q:
-            subs = _by_prob_desc(subs)[:5]
+            subs = _by_prob_desc(subs)[:3]
         elif "几次" in q or all(_OPT_COUNT_RE.search(o.get("question", "")) for o in subs):
             subs = subs[:3]
         elif sum(1 for o in subs if _OPT_DATE_RE.search(o.get("question", ""))) >= 2:
-            subs = subs[:4]
+            subs = subs[:3]
 
         d["sub_options"] = subs
         d["sub_count"]   = len(subs)
