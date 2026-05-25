@@ -109,8 +109,8 @@ def _format_changes(changes: dict) -> dict:
         color = "#ff0000" if v > 0 else "info"
         return f'<font color="{color}">{label}:{v:+.1%}</font>'
 
-    short_parts = [p for p in (_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m"), ("1h", "1h")]) if p]
-    long_parts  = [p for p in (_one(k, l) for k, l in [("1d", "1d"), ("3d", "3d"), ("5d", "5d"), ("14d", "14d")]) if p]
+    short_parts = [p for p in (_one(k, l) for k, l in [("5m", "5m"), ("30m", "30m")]) if p]
+    long_parts  = [p for p in (_one(k, l) for k, l in [("1d", "1d"), ("5d", "5d"), ("14d", "14d")]) if p]
 
     return {
         "short": "  ".join(short_parts),
@@ -205,7 +205,7 @@ def _limit_display_sub_options(slug_data: list) -> None:
     """
     按市场类型精简多选项市场展示的子选项数量（在过滤/排序之后调用）：
       · 「……哪个政党掌控？」：只保留概率最高的那个政党（top 1）
-      · 「……胜者是谁？」     ：按概率降序取前 3 名候选人
+      · 总统大选「胜出者/胜者是谁」：按概率降序取前 3 名候选人
       · 「……降息几次？」     ：保留前 3 个（即 0/1/2 次）
       · 多日期市场           ：按日期升序后只保留最早的 3 个日期
     其余多选项市场（如"会同意哪些要求"）保持原样，全部展示。
@@ -223,7 +223,7 @@ def _limit_display_sub_options(slug_data: list) -> None:
 
         if "政党" in q or all("党" in o.get("question", "") for o in subs):
             subs = _by_prob_desc(subs)[:1]
-        elif "谁" in q or "胜者" in q:
+        elif any(k in q for k in ("胜", "大选", "当选", "谁")):
             subs = _by_prob_desc(subs)[:3]
         elif "几次" in q or all(_OPT_COUNT_RE.search(o.get("question", "")) for o in subs):
             subs = subs[:3]
