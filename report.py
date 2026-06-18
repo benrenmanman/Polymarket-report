@@ -11,7 +11,6 @@ from analyzer import (
     summarize_highfreq,
     analyze_highfreq,
     plot_highfreq,
-    plot_all_highfreq_combined,
 )
 from notifier import (
     send_text,
@@ -421,15 +420,14 @@ def run_highfreq_report(slug: str, mode: str = "1min"):
 # ──────────────────────────────────────────
 # 降级路径：一次性拉取快照 + 高频数据，计算价格变化
 # ──────────────────────────────────────────
-def _build_all_data(slugs: list) -> tuple:
+def _build_all_data(slugs: list) -> list:
     """
-    一次遍历，同时构建：
-      slug_data  : 概览列表（含 changes_fmt 字段）
-      all_entries: 高频列表（含 df、chart，供合并长图）
-    返回 (slug_data, all_entries)
+    构建概览列表（仅快照，不抓高频）：
+    每个 slug 一次请求即可拿到全部子市场及其快照价（outcomePrices），
+    sub_options / 顶层均附带 token_id，供裁剪 top-N 之后再按需抓高频
+    （见 _enrich_price_changes）。changes_fmt 先留空，稍后填充。
     """
-    slug_data   = []
-    all_entries = []
+    slug_data = []
 
     for slug in slugs:
         try:
@@ -439,6 +437,7 @@ def _build_all_data(slugs: list) -> tuple:
                 slug_data.append({
                     "slug": slug, "question": slug, "yes_price": None,
                     "is_multi": False, "sub_count": 0, "sub_options": [],
+                    "token_id": None,
                     "changes": {}, "changes_fmt": {"short": "", "long": ""},
                     "expired": True, "expired_reason": meta["reason"],
                 })
@@ -447,52 +446,21 @@ def _build_all_data(slugs: list) -> tuple:
             sub_markets = market if isinstance(market, list) else [market]
             is_multi    = isinstance(market, list)
 
-            slug_expired        = meta["expired"]
-            slug_expired_reason = meta["reason"]
-
             sub_options_out = []
-
             for sub in sub_markets:
                 full_question = sub.get("question", slug)
                 # 多选项：用 groupItemTitle 作为简短标签（与网站一致）；
                 # 单市场：question 本身就是完整问题，沿用。
-                short_label   = (sub.get("groupItemTitle") or full_question) if is_multi else full_question
-                token_id      = _extract_token_id(sub)
-                yes_price     = _extract_yes_price(sub)
-
-                df_1min  = pd.DataFrame()
-                df_1day = pd.DataFrame()
-                entry    = {"slug": slug, "question": short_label, "modes": {}}
-
-                if token_id:
-                    for mode in ["1min", "1day"]:
-                        try:
-                            df = fetch_highfreq(token_id, mode=mode)
-                            if not df.empty:
-                                chart = plot_highfreq(df, short_label, mode=mode)
-                                entry["modes"][mode] = {"df": df, "chart": chart}
-                                if mode == "1min":
-                                    df_1min = df
-                                else:
-                                    df_1day = df
-                        except Exception as e:
-                            print(f"[report] {short_label} {mode} 失败: {e}")
-
-                all_entries.append(entry)
-
-                changes = _compute_price_changes(
-                    df_1min  if not df_1min.empty  else None,
-                    df_1day if not df_1day.empty else None,
-                )
+                short_label = (sub.get("groupItemTitle") or full_question) if is_multi else full_question
                 sub_options_out.append({
                     "question":    short_label,
-                    "yes_price":   yes_price,
-                    "changes":     changes,
-                    "changes_fmt": _format_changes(changes),
+                    "yes_price":   _extract_yes_price(sub),
+                    "token_id":    _extract_token_id(sub),
+                    "changes":     {},
+                    "changes_fmt": {"short": "", "long": ""},
                 })
 
             m = sub_markets[0]
-            top = sub_options_out[0] if sub_options_out else {}
             # 多选项市场主标题优先 event.title；单市场用自身 question。
             if is_multi:
                 main_question   = meta.get("event_title") or m.get("question", slug)
@@ -507,10 +475,11 @@ def _build_all_data(slugs: list) -> tuple:
                 "is_multi":         is_multi,
                 "sub_count":        len(sub_markets),
                 "sub_options":      sub_options_out if is_multi else [],
-                "changes":          top.get("changes", {}),
-                "changes_fmt":      top.get("changes_fmt", {"short": "", "long": ""}),
-                "expired":          slug_expired,
-                "expired_reason":   slug_expired_reason,
+                "token_id":         _extract_token_id(m),
+                "changes":          {},
+                "changes_fmt":      {"short": "", "long": ""},
+                "expired":          meta["expired"],
+                "expired_reason":   meta["reason"],
                 "use_event_title":  use_event_title,
             })
 
@@ -519,11 +488,52 @@ def _build_all_data(slugs: list) -> tuple:
             slug_data.append({
                 "slug": slug, "question": slug, "yes_price": None,
                 "is_multi": False, "sub_count": 0, "sub_options": [],
+                "token_id": None,
                 "changes": {}, "changes_fmt": {"short": "", "long": ""},
                 "expired": True, "expired_reason": "slug 未找到",
             })
 
-    return slug_data, all_entries
+    return slug_data
+
+
+def _enrich_price_changes(slug_data: list) -> None:
+    """
+    在过滤过期 + 裁剪 top-N 之后调用：仅对"实际展示"的选项抓取双粒度高频历史，
+    计算并填充 changes_fmt（涨跌幅）。
+      · 多选项市场：对每个展示中的 sub_option 抓 1min + 1day；
+      · 单市场    ：对顶层 token 抓 1min + 1day；
+      · 已过期 slug 概览不展示涨跌幅，整条跳过（不抓）。
+    由此把高频请求量从"全部子市场"降到"每个 slug 展示的 ~3 个选项"。
+    """
+    def _changes_for(token_id):
+        if not token_id:
+            return {}, {"short": "", "long": ""}
+        df_1min = pd.DataFrame()
+        df_1day = pd.DataFrame()
+        for mode in ["1min", "1day"]:
+            try:
+                df = fetch_highfreq(token_id, mode=mode)
+                if not df.empty:
+                    if mode == "1min":
+                        df_1min = df
+                    else:
+                        df_1day = df
+            except Exception as e:
+                print(f"[report] 高频 {mode} 失败 (token={token_id}): {e}")
+        changes = _compute_price_changes(
+            df_1min if not df_1min.empty else None,
+            df_1day if not df_1day.empty else None,
+        )
+        return changes, _format_changes(changes)
+
+    for d in slug_data:
+        if d.get("expired"):
+            continue
+        if d.get("is_multi"):
+            for opt in d.get("sub_options", []):
+                opt["changes"], opt["changes_fmt"] = _changes_for(opt.get("token_id"))
+        else:
+            d["changes"], d["changes_fmt"] = _changes_for(d.get("token_id"))
 
 
 # ──────────────────────────────────────────
@@ -743,35 +753,19 @@ def run_all_highfreq_reports(slugs: list):
             send_text(f"⚠️ mpnews 发送失败，已降级为分段消息: {e}")
             print(f"[report] mpnews 失败，降级: {e}")
 
-    # ── 降级：一次拉取所有数据，发概览卡片 + 合并长图（不发文字分析）──
+    # ── 降级：快照概览卡片。先裁剪 top-N，再仅对展示的选项抓高频涨跌幅 ──
     beijing_tz = timezone(timedelta(hours=8))
     timestamp  = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M 北京时间")
 
-    slug_data, all_entries = _build_all_data(slugs)
+    slug_data = _build_all_data(slugs)
 
-    # ── 翻译，并同步更新 all_entries 里的 question 字段 ──
     try:
-        # 翻译前记录原始文本，用于事后建立映射
-        pre_main = [d["question"] for d in slug_data]
-        pre_subs = [
-            [opt["question"] for opt in d.get("sub_options", [])]
-            for d in slug_data
-        ]
         _apply_translations(slug_data)
-        # 建立 原文 -> 译文 的查找表
-        trans_map: dict[str, str] = {}
-        for i, d in enumerate(slug_data):
-            trans_map[pre_main[i]] = d["question"]
-            for j, opt in enumerate(d.get("sub_options", [])):
-                if j < len(pre_subs[i]):
-                    trans_map[pre_subs[i][j]] = opt["question"]
-        # 将译文同步写入 all_entries（供 plot_all_highfreq_combined 使用）
-        for entry in all_entries:
-            entry["question"] = trans_map.get(entry["question"], entry["question"])
     except Exception as e:
         print(f"[report] 翻译失败，使用原文: {e}")
 
-    _filter_and_sort_sub_options(slug_data)
+    _filter_and_sort_sub_options(slug_data)   # 过滤过期 + 裁剪 top-N
+    _enrich_price_changes(slug_data)          # 仅对展示中的选项抓高频涨跌幅
 
     try:
         send_summary_card(slug_data, timestamp)
