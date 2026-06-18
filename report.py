@@ -196,19 +196,13 @@ def _apply_translations(slug_data: list) -> None:
             opt["question"] = trans
 
 
-# 子选项标签里的日期 / 加息次数模式，用于识别多选项市场的类型
-_OPT_DATE_RE  = re.compile(r'\d+月\d+日')
-_OPT_COUNT_RE = re.compile(r'^\s*\d+\s*次')
-
-
 def _limit_display_sub_options(slug_data: list) -> None:
     """
-    按市场类型精简多选项市场展示的子选项数量（在过滤/排序之后调用）：
-      · 「……哪个政党掌控？」：只保留概率最高的那个政党（top 1）
-      · 总统大选「胜出者/胜者是谁」：按概率降序取前 3 名候选人
-      · 「……降息几次？」     ：保留前 3 个（即 0/1/2 次）
-      · 多日期市场           ：按日期升序后只保留最早的 3 个日期
-    其余多选项市场（如"会同意哪些要求"）保持原样，全部展示。
+    精简多选项市场展示的子选项（在过滤/排序之后调用），统一规则：
+      · 二元政党市场（「……哪个政党掌控？」民主党 vs 共和党）：
+        只保留概率最高的一方（落后方为补数，省略）；
+      · 其余所有多选项市场：按概率降序取概率最高的前 3 个；总数 ≤ 3 时全部保留。
+        若前两项概率加总 > 95%，则省略第三项（仅展示前 2 个）。
     """
     for d in slug_data:
         if not d.get("is_multi"):
@@ -218,27 +212,30 @@ def _limit_display_sub_options(slug_data: list) -> None:
             continue
         q = d.get("question", "")
 
-        def _by_prob_desc(options):
-            return sorted(options, key=lambda o: o.get("yes_price") or 0.0, reverse=True)
+        # 按概率降序排列（展示时高概率在前）
+        ranked = sorted(subs, key=lambda o: o.get("yes_price") or 0.0, reverse=True)
 
         if "政党" in q or all("党" in o.get("question", "") for o in subs):
-            subs = _by_prob_desc(subs)[:1]
-        elif any(k in q for k in ("胜", "大选", "当选", "谁")):
-            subs = _by_prob_desc(subs)[:3]
-        elif "几次" in q or all(_OPT_COUNT_RE.search(o.get("question", "")) for o in subs):
-            subs = subs[:3]
-        elif sum(1 for o in subs if _OPT_DATE_RE.search(o.get("question", ""))) >= 2:
-            subs = subs[:3]
+            # 二元政党市场：只展示领先一方
+            top = ranked[:1]
+        else:
+            # 其余市场：取概率最高的前 3 个
+            top = ranked[:3]
+            # 前两项概率加总 > 95% 时省略第三项
+            if len(top) == 3 and (
+                (top[0].get("yes_price") or 0.0) + (top[1].get("yes_price") or 0.0) > 0.95
+            ):
+                top = top[:2]
 
-        d["sub_options"] = subs
-        d["sub_count"]   = len(subs)
+        d["sub_options"] = top
+        d["sub_count"]   = len(top)
 
 
 def _filter_and_sort_sub_options(slug_data: list) -> None:
     """
     过滤已过期（月/日早于今日）的子选项，再按日期升序排序。
     对跨年场景（今日距该日期 > 180 天）视为明年到期，保留。
-    排序完成后再按市场类型精简展示条目（见 _limit_display_sub_options）。
+    排序完成后再按统一规则精简展示条目（见 _limit_display_sub_options）。
     """
     beijing_tz = timezone(timedelta(hours=8))
     today      = datetime.now(beijing_tz)
