@@ -15,14 +15,17 @@ Settings→Secrets and variables→Actions→MARKET_SLUGS（Slugs之间逗号分
 ## 更改Ai的Prompt？
 修改report.py中的`ai_analyze()`函数
 ## 更改定时发送时间？
-修改report.yml中的函数：
-```
+工作流已配置**每 3 小时**自动运行一次（驱动 Polymarket 报告 + 霍尔木兹通行采样/趋势累积）。
+修改 `report.yml` 的 `schedule.cron` 即可调整频率：
+```yaml
 on:
-  # 定时触发（UTC 时间）
-  # 以下配置 = 北京时间 每天 09:00 / 15:00 / 21:00
+  workflow_dispatch:
   schedule:
-- cron: '*/30 * * * *'
+    # 每 3 小时整点（UTC）。每小时 '0 * * * *'；每 6 小时 '0 */6 * * *'
+    - cron: '0 */3 * * *'
 ```
+> ⚠️ GitHub 的 `schedule` **仅在默认分支（main）生效**：把开发分支合并到 main 后定时才会自动触发；在分支上只能手动 `workflow_dispatch`。
+> 频率越高，OpenAI / VesselAPI 调用与企微推送越多，注意配额与消息量。
 
 ## 霍尔木兹海峡通行情况跟踪
 定期报告可附带一段**霍尔木兹海峡通行态势**，聚合为：

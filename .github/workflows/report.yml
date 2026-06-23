@@ -2,6 +2,11 @@ name: Polymarket Report
 
 on:
   workflow_dispatch:
+  schedule:
+    # 每 3 小时整点运行（UTC）。北京时间约 08:00/11:00/14:00/17:00/20:00/23:00/02:00/05:00。
+    # 想调频率改这里，例如每小时 '0 * * * *'、每 6 小时 '0 */6 * * *'。
+    # 注意：GitHub 的 schedule 仅在“默认分支(main)”生效，需先把本分支合并到 main 才会自动跑。
+    - cron: '0 */3 * * *'
 
 jobs:
   report:
