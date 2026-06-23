@@ -48,6 +48,11 @@ HORMUZ_BBOX = [[25.5, 55.5], [27.0, 57.3]]
 # 回退大区域：当海峡边界框采样为 0 帧时，用更大的"波斯湾—阿曼湾"范围
 # 再探测一次，借此判断 aisstream 在该片海域是否有岸基覆盖。
 HORMUZ_FALLBACK_BBOX = [[22.5, 48.0], [30.5, 60.5]]
+# 方案 B：通行快照本地累积文件 + 趋势保留窗口（小时）。
+# aisstream 无历史接口，故每次报告把快照追加到该 JSON，逐步攒成时间序列；
+# 由 GitHub Actions 在运行后提交回仓库实现跨运行持久化。
+HORMUZ_HISTORY_FILE  = os.environ.get("HORMUZ_HISTORY_FILE", "hormuz_history.json")
+HORMUZ_HISTORY_HOURS = _int_env("HORMUZ_HISTORY_HOURS", 24)
 
 # 删除内容：
 # - SUPABASE_URL / SUPABASE_KEY  （不再写数据库）

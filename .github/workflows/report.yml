@@ -6,6 +6,9 @@ on:
 jobs:
   report:
     runs-on: ubuntu-latest
+    # 方案 B：允许将累积的 hormuz_history.json 提交回仓库
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,3 +26,23 @@ jobs:
           # 霍尔木兹海峡 AIS 通行跟踪（aisstream.io）；未配置则自动跳过该模块
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
           HORMUZ_WINDOW_SEC: ${{ secrets.HORMUZ_WINDOW_SEC }}
+          HORMUZ_HISTORY_HOURS: ${{ secrets.HORMUZ_HISTORY_HOURS }}
+      # 方案 B：把本次通行快照累积写回仓库（实现跨运行持久化）。
+      # best-effort：失败不影响报告本身；report.yml 仅 workflow_dispatch 触发，
+      # 故此提交不会再触发工作流（无循环风险），仍加 [skip ci] 以示明确。
+      - name: Persist Hormuz traffic history
+        if: always()
+        run: |
+          if [ -f hormuz_history.json ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add hormuz_history.json
+            if git diff --cached --quiet; then
+              echo "hormuz_history.json 无变化，跳过提交"
+            else
+              git commit -m "chore(hormuz): 累积通行快照 [skip ci]"
+              git push origin HEAD:${{ github.ref_name }} || echo "::warning::history 推送失败（可能为并发运行），本次快照未持久化"
+            fi
+          else
+            echo "未生成 hormuz_history.json（模块可能未启用），跳过"
+          fi

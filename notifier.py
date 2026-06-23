@@ -322,12 +322,39 @@ def send_image(image_bytes: bytes):
         raise RuntimeError(f"send_image 失败: {data}")
 
 
-def send_hormuz_card(stats: dict, analysis: str, timestamp: str):
+def _hormuz_trend_lines(trend: dict | None) -> list[str]:
+    """构建"过去 24h 趋势"区块（基于累积快照）。无趋势数据时返回空列表。"""
+    if not trend or trend.get("points", 0) < 1:
+        return []
+    pts = trend["points"]
+    if pts < 2:
+        # 仅 1 个数据点：尚无法比较，提示正在积累
+        return ["", f"**📅 24h 趋势** <font color=\"comment\">数据积累中（已记录 {pts} 次）</font>"]
+
+    span = trend.get("span_hours", 0) or 0
+    out  = ["", f"**📅 24h 趋势**（{pts} 次采样 / 跨度约 {span:.0f}h）"]
+
+    now   = trend.get("total_now", 0)
+    parts = [f"在区船舶 {now}"]
+    if trend.get("total_prev") is not None:
+        parts.append(f"较上次 {now - trend['total_prev']:+d}")
+    if trend.get("total_earliest") is not None:
+        parts.append(f"较最早 {now - trend['total_earliest']:+d}")
+    out.append("> " + "　".join(parts))
+    out.append(
+        f"> 区间 {trend.get('total_min', 0)} ~ {trend.get('total_max', 0)} 艘"
+        f"　当前油轮 {trend.get('tankers_now', 0)}"
+    )
+    return out
+
+
+def send_hormuz_card(stats: dict, analysis: str, timestamp: str, trend: dict | None = None):
     """
     发送霍尔木兹海峡实时通行态势 Markdown 卡片。
     stats    : hormuz.collect_hormuz_traffic() 的返回值
     analysis : analyzer.analyze_hormuz() 的中文研判（可为空串）
     timestamp: 更新时间字符串
+    trend    : hormuz_history.summarize_trend() 的返回值（可为 None）
     """
     lines = ["## 🚢 霍尔木兹海峡通行实时跟踪", f"> {timestamp}"]
 
@@ -360,6 +387,7 @@ def send_hormuz_card(stats: dict, analysis: str, timestamp: str):
             '多为 aisstream 在该海域缺少岸基接收机覆盖；可尝试调大 HORMUZ_WINDOW_SEC，'
             '或更换为商用 AIS 数据源。</font>'
         )
+        lines += _hormuz_trend_lines(trend)
         send_long_markdown("\n".join(lines))
         return
 
@@ -376,6 +404,9 @@ def send_hormuz_card(stats: dict, analysis: str, timestamp: str):
         f'> 东行（出湾·驶向阿曼湾）：<font color="info">{east}</font> 艘　'
         f'西行（入湾·驶入波斯湾）：<font color="warning">{west}</font> 艘{spd_txt}'
     )
+
+    # ── 过去 24h 趋势（方案 B 累积）──
+    lines += _hormuz_trend_lines(trend)
 
     # ── 船型构成 ──
     type_counts = stats.get("type_counts") or {}

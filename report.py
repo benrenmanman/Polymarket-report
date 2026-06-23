@@ -23,7 +23,14 @@ from notifier import (
     send_mpnews,
 )
 from hormuz import collect_hormuz_traffic
-from config import SLUGS, MPNEWS_ENABLED, HORMUZ_ENABLED
+from hormuz_history import append_snapshot, summarize_trend
+from config import (
+    SLUGS,
+    MPNEWS_ENABLED,
+    HORMUZ_ENABLED,
+    HORMUZ_HISTORY_FILE,
+    HORMUZ_HISTORY_HOURS,
+)
 
 
 # ──────────────────────────────────────────
@@ -800,6 +807,15 @@ def run_hormuz_report():
         print(f"[report] 霍尔木兹 AIS 采样异常: {e}")
         stats = {"ok": False, "error": str(e), "total": 0}
 
+    # ── 方案 B：累积快照并计算 24h 趋势（仅成功采样时记录）──
+    trend = None
+    if stats.get("ok"):
+        try:
+            history = append_snapshot(stats, HORMUZ_HISTORY_FILE, HORMUZ_HISTORY_HOURS)
+            trend = summarize_trend(history)
+        except Exception as e:
+            print(f"[report] 霍尔木兹历史累积失败: {e}")
+
     analysis = ""
     if stats.get("ok"):
         try:
@@ -808,7 +824,7 @@ def run_hormuz_report():
             print(f"[report] 霍尔木兹 AI 研判失败: {e}")
 
     try:
-        send_hormuz_card(stats, analysis, timestamp)
+        send_hormuz_card(stats, analysis, timestamp, trend)
         print(f"[report] 霍尔木兹海峡卡片已发送（在区船舶 {stats.get('total', 0)} 艘）")
     except Exception as e:
         print(f"[report] 霍尔木兹卡片发送失败: {e}")

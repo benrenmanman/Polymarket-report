@@ -313,7 +313,33 @@ def collect_hormuz_traffic(window_sec: int | None = None,
     return stats
 
 
+def _diagnose(window_sec: int):
+    """
+    覆盖诊断：分别探测海峡与大区两个边界框，打印帧数/船舶数/服务端错误，
+    用于排查"采样为 0"到底是配置问题、还是 aisstream 在该海域无覆盖。
+    用法：AISSTREAM_API_KEY=<key> python hormuz.py [窗口秒数]
+    """
+    print(f"=== aisstream 覆盖诊断（窗口 {window_sec}s）===")
+    if not AISSTREAM_API_KEY:
+        print("✗ 未配置 AISSTREAM_API_KEY")
+        return
+    for name, box in [("海峡 HORMUZ_BBOX", HORMUZ_BBOX),
+                      ("大区 FALLBACK_BBOX", HORMUZ_FALLBACK_BBOX)]:
+        print(f"\n--- 探测 {name}: {box} ---")
+        try:
+            pos, stat, frames, err = _run_sample(box, window_sec)
+            if err:
+                print(f"  ⚠️ 服务端错误: {err}")
+            print(f"  收到帧数: {frames}　去重船舶: {len(pos)}　静态信息: {len(stat)}")
+        except Exception as e:
+            print(f"  ✗ 连接/采样异常: {e!r}")
+    print("\n=== 完整聚合（含自动回退）===")
+    print(json.dumps(collect_hormuz_traffic(window_sec=window_sec),
+                     ensure_ascii=False, indent=2))
+
+
 if __name__ == "__main__":
-    # 本地调试：python hormuz.py —— 采样并打印 JSON 统计
-    stats = collect_hormuz_traffic()
-    print(json.dumps(stats, ensure_ascii=False, indent=2))
+    # 本地调试/诊断：python hormuz.py [窗口秒数]
+    import sys
+    win = int(sys.argv[1]) if len(sys.argv) > 1 else (HORMUZ_WINDOW_SEC or 60)
+    _diagnose(win)

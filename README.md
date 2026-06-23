@@ -36,17 +36,32 @@ aisstream 是**实时 WebSocket 推流**，不是"查一次返回当前所有船
 - 若海峡边界框窗口内 **0 帧**，会自动回退到「波斯湾—阿曼湾」大区（`HORMUZ_FALLBACK_BBOX`）再探测一次，用于区分"海峡局部无数据"与"aisstream 该海域整体无岸基覆盖"。卡片会标注实际数据范围与收到的报文帧数。
 - ⚠️ aisstream 为**众包岸基接收机**网络，部分海域覆盖可能有限。若长期为 0 帧，需考虑改用商用 AIS 数据源（MarineTraffic / VesselFinder 等）。
 
+#### 采样窗口最大能设多大？
+aisstream 的流可以**一直挂着**，协议上没有时长上限（唯一硬约束是连接后须在 **3 秒内**发送订阅）。实际上限来自运行环境：
+- 跑在 GitHub Actions 上，**单个作业最长 6 小时**——这是硬上限，但绝不该跑这么久。
+- 采样窗口应**远小于报告间隔**（如每 30 分钟一次，则窗口控制在几分钟内）。
+- 经验值：常规运行 `60`s 足够；**排查 0 数据时建议临时调到 `180`~`300`**。
+
+### 过去 24h 趋势（方案 B：自累积）
+aisstream 无历史接口，故采用"**每次报告把当次快照追加存档**"的方式攒出时间序列：
+- 快照写入仓库根目录的 `hormuz_history.json`，由工作流在每次运行后**自动提交回仓库**（需要 `contents: write` 权限，已在 `report.yml` 配好）。
+- 报告卡片会展示"📅 24h 趋势"：在区船舶数较上次 / 较最早的变化、区间极值、当前油轮数。
+- 保留窗口由 `HORMUZ_HISTORY_HOURS`（默认 24）控制。
+- 注意：这是**稀疏采样趋势**（每次报告一个 60s 快照点），用于看通航量随时间的升降，**不等于**"24h 内驶过的所有船只清单"。
+
 ### 启用方式
 1. 在 [aisstream.io/apikeys](https://aisstream.io/apikeys) 申请 API Key；
 2. Settings→Secrets and variables→Actions→新增 `AISSTREAM_API_KEY`（填入你的 Key）。
    **未配置时该模块自动跳过，不影响 Polymarket 主报告。**
 
 ### 可选配置
-- `HORMUZ_WINDOW_SEC`（Secret，单次采样秒数，默认 60）。窗口越长覆盖船舶越全。
+- `HORMUZ_WINDOW_SEC`（Secret，单次采样秒数，默认 60；排查无数据可设 180~300）。
+- `HORMUZ_HISTORY_HOURS`（Secret，趋势保留小时数，默认 24）。
 - 监测边界框 `HORMUZ_BBOX` 在 `config.py` 中定义，默认 `[[25.5, 55.5], [27.0, 57.3]]`
   （格式 `[[南纬, 西经], [北纬, 东经]]`，覆盖海峡主航道与进出港通道）。
 
-### 本地调试
+### 本地调试 / 覆盖诊断
 ```bash
-AISSTREAM_API_KEY=你的key python hormuz.py   # 采样并打印 JSON 统计
+# 分别探测海峡与大区两个边界框，打印帧数/船舶数/服务端错误，定位"0 数据"成因
+AISSTREAM_API_KEY=你的key python hormuz.py 180   # 参数为采样窗口秒数，默认 60
 ```
