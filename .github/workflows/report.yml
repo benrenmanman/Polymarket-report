@@ -28,6 +28,8 @@ jobs:
           VESSELAPI_KEYS:   ${{ secrets.VESSELAPI_KEYS }}
           # 数据源选择：vesselapi / aisstream（留空自动择优：有 VesselAPI key 则用之）
           HORMUZ_SOURCE:    ${{ secrets.HORMUZ_SOURCE }}
+          # 调试：设为 1 时把首条原始记录打到运行日志，便于核对真实字段名
+          HORMUZ_DEBUG:     ${{ secrets.HORMUZ_DEBUG }}
           # aisstream.io（实时流，免费）
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
           HORMUZ_WINDOW_SEC: ${{ secrets.HORMUZ_WINDOW_SEC }}

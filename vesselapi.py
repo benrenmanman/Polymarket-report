@@ -17,11 +17,16 @@
                navStatus, shipType, destination, timestamp}, ...],
      "pagination": {"nextToken": "..."}}
 """
+import os
+import json
 import time
 import requests
 
 from config import VESSELAPI_KEYS, HORMUZ_BBOX, HORMUZ_FALLBACK_BBOX
 from hormuz import _aggregate, _clean
+
+# 设 HORMUZ_DEBUG=1 时，把首条原始记录完整打到日志，便于核对真实字段名
+_DEBUG = os.environ.get("HORMUZ_DEBUG", "").strip().lower() not in ("", "0", "false", "no")
 
 VESSELAPI_BASE  = "https://api.vesselapi.com/v1"
 _BBOX_ENDPOINT  = f"{VESSELAPI_BASE}/location/vessels/bounding-box"
@@ -37,6 +42,27 @@ def _get(d: dict, names: list, default=None):
         if v is not None:
             return v
     return default
+
+
+# 模糊匹配时排除的"伪 type"键（避免误用元数据字段）
+_TYPE_KEY_EXCLUDE = ("message", "request", "content", "mime", "media")
+
+
+def _guess_type(r: dict):
+    """
+    解析船型字段：先按已知字段名取；取不到时，模糊匹配任意含 'type' 的键
+    （排除 messageType 等元数据），以适配未知的真实字段名。
+    """
+    v = _get(r, ["shipType", "ship_type", "vesselType", "vessel_type", "type",
+                 "aisShipType", "shipTypeText", "typeName", "vesselTypeName",
+                 "category", "shipCategory"])
+    if v is not None:
+        return v
+    for k, val in r.items():
+        kl = str(k).lower()
+        if "type" in kl and val not in (None, "") and not any(x in kl for x in _TYPE_KEY_EXCLUDE):
+            return val
+    return None
 
 
 def _request_page(params: dict, keys: list):
@@ -119,6 +145,14 @@ def _to_positions_statics(records: list):
     """把 VesselAPI 船舶记录映射为 _aggregate 所需的 positions / statics 结构。"""
     positions: dict = {}
     statics: dict = {}
+
+    # 字段名核对：打印首条记录的字段清单（HORMUZ_DEBUG=1 时连同完整记录）
+    if records and isinstance(records[0], dict):
+        print(f"[vesselapi] 首条记录字段: {sorted(records[0].keys())}")
+        if _DEBUG:
+            print(f"[vesselapi][debug] 首条记录: "
+                  f"{json.dumps(records[0], ensure_ascii=False)[:800]}")
+
     for r in records:
         if not isinstance(r, dict):
             continue
@@ -134,10 +168,9 @@ def _to_positions_statics(records: list):
             "nav":  _get(r, ["navStatus", "nav_status", "navigationalStatus"]),
         }
         statics[mmsi] = {
-            "type":        _get(r, ["shipType", "ship_type", "vesselType",
-                                    "vessel_type", "type", "aisShipType"]),
+            "type":        _guess_type(r),
             "name":        name,
-            "destination": _clean(_get(r, ["destination", "dest"], "")),
+            "destination": _clean(_get(r, ["destination", "dest", "destinationPort"], "")),
         }
     return positions, statics
 
