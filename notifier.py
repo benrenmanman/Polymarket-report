@@ -322,17 +322,25 @@ def send_image(image_bytes: bytes):
         raise RuntimeError(f"send_image 失败: {data}")
 
 
+def _fmt_span(span_hours: float) -> str:
+    """把累积跨度格式化为友好文本：≥1h 显示小时，不足 1h 显示分钟。"""
+    span_hours = span_hours or 0
+    if span_hours >= 1:
+        return f"{span_hours:.0f}h"
+    minutes = span_hours * 60
+    return f"{minutes:.0f}分钟" if minutes >= 1 else "刚开始"
+
+
 def _hormuz_trend_lines(trend: dict | None) -> list[str]:
-    """构建"过去 24h 趋势"区块（基于累积快照）。无趋势数据时返回空列表。"""
+    """构建通行趋势区块（基于本地累积快照，最长保留 24h）。无数据时返回空列表。"""
     if not trend or trend.get("points", 0) < 1:
         return []
     pts = trend["points"]
     if pts < 2:
         # 仅 1 个数据点：尚无法比较，提示正在积累
-        return ["", f"**📅 24h 趋势** <font color=\"comment\">数据积累中（已记录 {pts} 次）</font>"]
+        return ["", f"**📅 通行趋势** <font color=\"comment\">数据积累中（已记录 {pts} 次）</font>"]
 
-    span = trend.get("span_hours", 0) or 0
-    out  = ["", f"**📅 24h 趋势**（{pts} 次采样 / 跨度约 {span:.0f}h）"]
+    out = ["", f"**📅 通行趋势**（{pts} 次采样 / 跨度 {_fmt_span(trend.get('span_hours'))}）"]
 
     now   = trend.get("total_now", 0)
     parts = [f"在区船舶 {now}"]
