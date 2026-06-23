@@ -1,3 +1,16 @@
 {
-  "snapshots": []
+  "snapshots": [
+    {
+      "ts": "2026-06-23T03:09:38Z",
+      "area": "strait",
+      "frames": 0,
+      "total": 0,
+      "moving": 0,
+      "anchored": 0,
+      "eastbound": 0,
+      "westbound": 0,
+      "avg_speed": null,
+      "tankers": 0
+    }
+  ]
 }
