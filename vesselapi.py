@@ -25,8 +25,8 @@ from hormuz import _aggregate, _clean
 
 VESSELAPI_BASE  = "https://api.vesselapi.com/v1"
 _BBOX_ENDPOINT  = f"{VESSELAPI_BASE}/location/vessels/bounding-box"
-_PAGE_LIMIT     = 200
-_MAX_PAGES      = 15
+_PAGE_LIMIT     = 50    # VesselAPI 上限：pagination.limit 不得超过 50
+_MAX_PAGES      = 30    # 配合每页 50，最多取 1500 条，兼顾覆盖与配额消耗
 _TIMEOUT        = 20
 
 
