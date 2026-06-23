@@ -23,7 +23,12 @@ jobs:
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           OPENAI_MODEL:    ${{ secrets.OPENAI_MODEL }}
           MARKET_SLUGS:    ${{ secrets.MARKET_SLUGS }}
-          # 霍尔木兹海峡 AIS 通行跟踪（aisstream.io）；未配置则自动跳过该模块
+          # 霍尔木兹海峡通行跟踪；两个数据源任配其一即可，都未配则自动跳过该模块。
+          # VesselAPI（REST，商用，覆盖更全；可填多把 key，逗号分隔）
+          VESSELAPI_KEYS:   ${{ secrets.VESSELAPI_KEYS }}
+          # 数据源选择：vesselapi / aisstream（留空自动择优：有 VesselAPI key 则用之）
+          HORMUZ_SOURCE:    ${{ secrets.HORMUZ_SOURCE }}
+          # aisstream.io（实时流，免费）
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
           HORMUZ_WINDOW_SEC: ${{ secrets.HORMUZ_WINDOW_SEC }}
           HORMUZ_HISTORY_HOURS: ${{ secrets.HORMUZ_HISTORY_HOURS }}

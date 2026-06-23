@@ -358,35 +358,44 @@ def send_hormuz_card(stats: dict, analysis: str, timestamp: str, trend: dict | N
     """
     lines = ["## 🚢 霍尔木兹海峡通行实时跟踪", f"> {timestamp}"]
 
-    # ── 失败/无数据：给出明确提示 ──
+    # ── 数据源标识（vesselapi / aisstream）──
+    source = (stats or {}).get("source", "aisstream")
+    src_name, src_url = {
+        "vesselapi": ("VesselAPI", "https://vesselapi.com/"),
+        "aisstream": ("AISStream.io", "https://aisstream.io/"),
+    }.get(source, ("AISStream.io", "https://aisstream.io/"))
+
+    # ── 失败：给出明确提示 ──
     if not stats or not stats.get("ok"):
         reason = (stats or {}).get("error") or "未知错误"
-        lines.append(f'> <font color="warning">⚠️ AIS 采样失败：{reason}</font>')
-        lines.append("> 数据来源：[AISStream.io](https://aisstream.io/)")
+        lines.append(f'> <font color="warning">⚠️ 通行数据采集失败：{reason}</font>')
+        lines.append(f"> 数据来源：[{src_name}]({src_url})")
         send_long_markdown("\n".join(lines))
         return
 
-    window = stats.get("window_sec", 0)
     total  = stats.get("total", 0)
     frames = stats.get("msg_count", 0)
     area   = stats.get("area", "strait")
-    lines.append(
-        f"> 数据来源：[AISStream.io](https://aisstream.io/)（实时 AIS）· "
-        f"采样 {window} 秒 · 收到 {frames} 帧"
-    )
-    # 海峡主航道窗口内无数据、已回退到大区时，明确标注数据范围
+    if source == "vesselapi":
+        meta = f"REST 快照 · 返回 {frames} 条"
+    else:
+        meta = f"采样 {stats.get('window_sec', 0)} 秒 · 收到 {frames} 帧"
+    lines.append(f"> 数据来源：[{src_name}]({src_url})（AIS）· {meta}")
+
+    # 海峡边界框无数据、已回退到大区时，明确标注数据范围
     if area == "wide":
         lines.append(
-            '> <font color="comment">⚠️ 海峡主航道窗口内无数据，'
+            '> <font color="comment">⚠️ 海峡主航道无数据，'
             '以下为「波斯湾—阿曼湾」大区探测结果。</font>'
         )
 
     if total == 0:
-        lines.append(
-            '> <font color="comment">采样窗口内未收到 AIS 报文（含大区覆盖探测）。'
-            '多为 aisstream 在该海域缺少岸基接收机覆盖；可尝试调大 HORMUZ_WINDOW_SEC，'
-            '或更换为商用 AIS 数据源。</font>'
-        )
+        if source == "vesselapi":
+            hint = "未返回任何船舶（已含大区探测）。请检查 API Key / 配额，或该海域确无数据。"
+        else:
+            hint = ("采样窗口内未收到 AIS 报文（含大区覆盖探测）。多为 aisstream 在该海域"
+                    "缺少岸基接收机覆盖；可尝试调大 HORMUZ_WINDOW_SEC，或更换为 VesselAPI。")
+        lines.append(f'> <font color="comment">{hint}</font>')
         lines += _hormuz_trend_lines(trend)
         send_long_markdown("\n".join(lines))
         return

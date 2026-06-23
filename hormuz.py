@@ -40,33 +40,66 @@ _MOVING_MIN = 0.5     # 航速 ≥ 0.5 节视为"航行中"
 # 依据 ITU-R M.1371 船舶与货物类型编码
 # ──────────────────────────────────────────
 def ship_type_category(type_code) -> str:
-    """将 AIS ShipStaticData.Type 代码映射为中文船型分类。无效时归为'未知'。"""
+    """
+    映射船型为中文分类，兼容两类输入：
+      · AIS 数值类型码（ITU-R M.1371，aisstream 的 ShipStaticData.Type）
+      · 文本类型描述（如 'Tanker' / 'Cargo'，VesselAPI 的 shipType）
+    无法识别时归为'未知'。
+    """
+    # ── 数值 AIS 码 ──
     try:
         t = int(type_code)
     except (TypeError, ValueError):
+        t = None
+    if t is not None:
+        if t <= 0:
+            return "未知"
+        if 80 <= t <= 89:
+            return "油轮"            # Tanker（含油气运输船）
+        if 70 <= t <= 79:
+            return "货船"            # Cargo
+        if 60 <= t <= 69:
+            return "客船"            # Passenger
+        if 40 <= t <= 49:
+            return "高速船"          # High-speed craft
+        if t == 30:
+            return "渔船"            # Fishing
+        if t in (31, 32, 52):
+            return "拖轮/作业船"     # Towing / Tug
+        if t in (33, 34, 53, 54):
+            return "工程/作业船"     # Dredging / Diving / Port tender / Anti-pollution
+        if t in (35, 55):
+            return "军警船"          # Military / Law enforcement
+        if t in (36, 37):
+            return "帆船/游艇"       # Sailing / Pleasure craft
+        if t in (50, 51):
+            return "引航/搜救船"     # Pilot / SAR
+        return "其他"
+
+    # ── 文本描述（VesselAPI 等返回如 'Tanker'/'Cargo - Hazard A'）──
+    s = str(type_code or "").strip().lower()
+    if not s:
         return "未知"
-    if t <= 0:
-        return "未知"
-    if 80 <= t <= 89:
-        return "油轮"            # Tanker（含油气运输船）
-    if 70 <= t <= 79:
-        return "货船"            # Cargo
-    if 60 <= t <= 69:
-        return "客船"            # Passenger
-    if 40 <= t <= 49:
-        return "高速船"          # High-speed craft
-    if t == 30:
-        return "渔船"            # Fishing
-    if t in (31, 32, 52):
-        return "拖轮/作业船"     # Towing / Tug
-    if t in (33, 34, 53, 54):
-        return "工程/作业船"     # Dredging / Diving / Port tender / Anti-pollution
-    if t in (35, 55):
-        return "军警船"          # Military / Law enforcement
-    if t in (36, 37):
-        return "帆船/游艇"       # Sailing / Pleasure craft
-    if t in (50, 51):
-        return "引航/搜救船"     # Pilot / SAR
+    if "tanker" in s:
+        return "油轮"
+    if "cargo" in s or "bulk" in s or "container" in s:
+        return "货船"
+    if "passenger" in s or "cruise" in s:
+        return "客船"
+    if "high" in s and "speed" in s:
+        return "高速船"
+    if "fishing" in s:
+        return "渔船"
+    if "tug" in s or "towing" in s:
+        return "拖轮/作业船"
+    if any(k in s for k in ("dredg", "diving", "tender", "pollution", "dredging")):
+        return "工程/作业船"
+    if "military" in s or "law" in s or "enforce" in s:
+        return "军警船"
+    if "sailing" in s or "pleasure" in s or "yacht" in s:
+        return "帆船/游艇"
+    if "pilot" in s or "rescue" in s or "sar" in s:
+        return "引航/搜救船"
     return "其他"
 
 
@@ -236,6 +269,7 @@ def _aggregate(positions: dict, statics: dict, msg_count: int,
     return {
         "ok":           True,
         "error":        None,
+        "source":       "aisstream",  # 数据源，可由其它 provider 覆写
         "window_sec":   window_sec,
         "bbox":         bbox,
         "area":         "strait",   # 采样区域，可由 collect 覆写为 "wide"
@@ -277,7 +311,8 @@ def collect_hormuz_traffic(window_sec: int | None = None,
       失败 → {"ok": False, "error": "原因", ...}
     """
     if not AISSTREAM_API_KEY:
-        return {"ok": False, "error": "未配置 AISSTREAM_API_KEY", "total": 0}
+        return {"ok": False, "error": "未配置 AISSTREAM_API_KEY", "total": 0,
+                "source": "aisstream"}
 
     window_sec = window_sec or HORMUZ_WINDOW_SEC
     use_default_bbox = bbox is None
@@ -288,11 +323,11 @@ def collect_hormuz_traffic(window_sec: int | None = None,
         positions, statics, msg_count, error = _run_sample(primary_bbox, window_sec)
     except Exception as e:
         return {"ok": False, "error": f"AIS 连接/采样失败: {e}", "total": 0,
-                "window_sec": window_sec, "bbox": primary_bbox}
+                "source": "aisstream", "window_sec": window_sec, "bbox": primary_bbox}
 
     if error:
         return {"ok": False, "error": f"AIS 服务端错误: {error}", "total": 0,
-                "window_sec": window_sec, "bbox": primary_bbox}
+                "source": "aisstream", "window_sec": window_sec, "bbox": primary_bbox}
 
     used_bbox = primary_bbox
     area = "strait"

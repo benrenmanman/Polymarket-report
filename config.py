@@ -38,7 +38,6 @@ SLUGS = [s.strip() for s in re.split(r"[,\r\n]+", os.environ["MARKET_SLUGS"]) if
 # 申请地址：https://aisstream.io/apikeys
 # .strip() 兜底 Secret 末尾可能混入的换行/空白，避免破坏 WebSocket 鉴权。
 AISSTREAM_API_KEY = os.environ.get("AISSTREAM_API_KEY", "").strip()
-HORMUZ_ENABLED    = bool(AISSTREAM_API_KEY)
 # 单次采样时长（秒）。aisstream 为实时推流，窗口越长覆盖船舶越全。
 # 用 _int_env 兜底：未配置该可选 Secret 时 GitHub Actions 传入空串。
 HORMUZ_WINDOW_SEC = _int_env("HORMUZ_WINDOW_SEC", 60)
@@ -53,6 +52,35 @@ HORMUZ_FALLBACK_BBOX = [[22.5, 48.0], [30.5, 60.5]]
 # 由 GitHub Actions 在运行后提交回仓库实现跨运行持久化。
 HORMUZ_HISTORY_FILE  = os.environ.get("HORMUZ_HISTORY_FILE", "hormuz_history.json")
 HORMUZ_HISTORY_HOURS = _int_env("HORMUZ_HISTORY_HOURS", 24)
+
+# ── 数据源选择：VesselAPI（REST，商用）或 aisstream（实时流，免费）──
+# VesselAPI（https://vesselapi.com/）为 REST 接口，一次请求即可拿到边界框内
+# 当前全部船舶，更适合定期一次性任务、覆盖通常更全。支持配置多把 key
+# （逗号/空白分隔），运行时按序故障切换（配额叠加 + 冗余）。
+VESSELAPI_KEYS = [
+    k.strip() for k in re.split(r"[,\s]+", os.environ.get("VESSELAPI_KEYS", "")) if k.strip()
+]
+# 显式指定来源：'vesselapi' / 'aisstream'；留空则自动择优：
+#   有 VesselAPI key → vesselapi；否则有 aisstream key → aisstream；都无则停用。
+HORMUZ_SOURCE = os.environ.get("HORMUZ_SOURCE", "").strip().lower()
+
+
+def _effective_hormuz_source() -> str:
+    if HORMUZ_SOURCE in ("vesselapi", "aisstream"):
+        # 显式指定但对应 key 缺失时，回退到另一可用源
+        if HORMUZ_SOURCE == "vesselapi" and VESSELAPI_KEYS:
+            return "vesselapi"
+        if HORMUZ_SOURCE == "aisstream" and AISSTREAM_API_KEY:
+            return "aisstream"
+    if VESSELAPI_KEYS:
+        return "vesselapi"
+    if AISSTREAM_API_KEY:
+        return "aisstream"
+    return ""
+
+
+HORMUZ_SOURCE_EFFECTIVE = _effective_hormuz_source()
+HORMUZ_ENABLED = bool(HORMUZ_SOURCE_EFFECTIVE)
 
 # 删除内容：
 # - SUPABASE_URL / SUPABASE_KEY  （不再写数据库）

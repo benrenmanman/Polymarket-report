@@ -28,9 +28,18 @@ from config import (
     SLUGS,
     MPNEWS_ENABLED,
     HORMUZ_ENABLED,
+    HORMUZ_SOURCE_EFFECTIVE,
     HORMUZ_HISTORY_FILE,
     HORMUZ_HISTORY_HOURS,
 )
+
+
+def _collect_hormuz_stats() -> dict:
+    """按配置的数据源采样霍尔木兹海峡通行情况（vesselapi / aisstream）。"""
+    if HORMUZ_SOURCE_EFFECTIVE == "vesselapi":
+        from vesselapi import collect_hormuz_traffic_vesselapi
+        return collect_hormuz_traffic_vesselapi()
+    return collect_hormuz_traffic()
 
 
 # ──────────────────────────────────────────
@@ -800,12 +809,13 @@ def run_hormuz_report():
     beijing_tz = timezone(timedelta(hours=8))
     timestamp  = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M 北京时间")
 
-    print("[report] 开始采样霍尔木兹海峡 AIS 通行数据……")
+    print(f"[report] 开始采样霍尔木兹海峡通行数据（数据源：{HORMUZ_SOURCE_EFFECTIVE}）……")
     try:
-        stats = collect_hormuz_traffic()
+        stats = _collect_hormuz_stats()
     except Exception as e:
-        print(f"[report] 霍尔木兹 AIS 采样异常: {e}")
-        stats = {"ok": False, "error": str(e), "total": 0}
+        print(f"[report] 霍尔木兹采样异常: {e}")
+        stats = {"ok": False, "error": str(e), "total": 0,
+                 "source": HORMUZ_SOURCE_EFFECTIVE}
 
     # ── 方案 B：累积快照并计算 24h 趋势（仅成功采样时记录）──
     trend = None

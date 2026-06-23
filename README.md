@@ -24,10 +24,21 @@ on:
 - cron: '*/30 * * * *'
 ```
 
-## 霍尔木兹海峡通行情况跟踪（基于 aisstream.io）
-定期报告可附带一段**霍尔木兹海峡实时通行态势**，数据来自 [aisstream.io](https://aisstream.io/) 的实时 AIS 推流。
-每次运行会连接 AIS WebSocket、采样海峡边界框内的船舶位置报文，聚合为：
-在区船舶数、航行中/锚泊数、进出湾流向（东行出湾 / 西行入湾）、平均航速、船型构成（油轮/货船等）、重点油轮动向，并由 AI 给出形势研判，随报告一同推送。
+## 霍尔木兹海峡通行情况跟踪
+定期报告可附带一段**霍尔木兹海峡通行态势**，聚合为：
+在区船舶数、航行中/锚泊数、进出湾流向（东行出湾 / 西行入湾）、平均航速、船型构成（油轮/货船等）、重点油轮动向、过去 24h 趋势，并由 AI 给出形势研判，随报告一同推送。
+
+### 两种数据源（二选一）
+| 数据源 | 接口 | 特点 | 配置 Secret |
+|---|---|---|---|
+| **VesselAPI**（推荐） | REST，一次请求取边界框内当前全部船舶 | 商用、覆盖更全、含船型字段 | `VESSELAPI_KEYS`（可填多把 key，逗号分隔，自动故障切换 + 配额叠加） |
+| **aisstream.io** | 实时 WebSocket 流，监听固定窗口采样 | 免费，但众包岸基覆盖在部分海域有限 | `AISSTREAM_API_KEY` |
+
+- 用 `HORMUZ_SOURCE`（Secret）显式指定 `vesselapi` / `aisstream`；**留空则自动择优**：有 VesselAPI key 用 VesselAPI，否则用 aisstream，都没有则跳过该模块。
+- 两种源返回结构一致，趋势累积 / AI 研判 / 卡片推送逻辑完全共用。
+- VesselAPI 申请：[vesselapi.com](https://vesselapi.com/)；文档 [/docs](https://vesselapi.com/docs)、[/api-reference](https://vesselapi.com/api-reference)。
+  - 接口：`GET /v1/location/vessels/bounding-box`，鉴权 `Authorization: Bearer <key>`。
+  - 注意 429 限流（配额耗尽 / 并发>20），可选 `time.from`/`time.to` 支持最近 4h 历史窗口。
 
 ### 取数逻辑（重要）
 aisstream 是**实时 WebSocket 推流**，不是"查一次返回当前所有船"的接口。因此本模块的做法是：
