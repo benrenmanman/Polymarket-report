@@ -11,6 +11,18 @@
       "westbound": 0,
       "avg_speed": null,
       "tankers": 0
+    },
+    {
+      "ts": "2026-06-23T03:18:55Z",
+      "area": "strait",
+      "frames": 50,
+      "total": 10,
+      "moving": 5,
+      "anchored": 5,
+      "eastbound": 2,
+      "westbound": 3,
+      "avg_speed": 3.5,
+      "tankers": 0
     }
   ]
 }
