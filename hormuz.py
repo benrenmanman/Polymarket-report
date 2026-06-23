@@ -22,6 +22,7 @@ import websockets
 from config import (
     AISSTREAM_API_KEY,
     HORMUZ_BBOX,
+    HORMUZ_FALLBACK_BBOX,
     HORMUZ_WINDOW_SEC,
 )
 
@@ -237,6 +238,7 @@ def _aggregate(positions: dict, statics: dict, msg_count: int,
         "error":        None,
         "window_sec":   window_sec,
         "bbox":         bbox,
+        "area":         "strait",   # 采样区域，可由 collect 覆写为 "wide"
         "msg_count":    msg_count,
         "total":        total,
         "moving":       moving,
@@ -252,14 +254,25 @@ def _aggregate(positions: dict, statics: dict, msg_count: int,
 # ──────────────────────────────────────────
 # 对外同步接口
 # ──────────────────────────────────────────
+def _run_sample(bbox: list, window_sec: int):
+    """对单个边界框跑一轮采样，封装 asyncio 与异常。返回与 _stream 一致的四元组。"""
+    return asyncio.run(_stream(AISSTREAM_API_KEY, bbox, window_sec))
+
+
 def collect_hormuz_traffic(window_sec: int | None = None,
                            bbox: list | None = None) -> dict:
     """
     采样霍尔木兹海峡通行情况并返回聚合统计（同步封装，内部跑 asyncio）。
 
+    采样策略：
+      1. 先采海峡主航道边界框（HORMUZ_BBOX）；
+      2. 若该窗口内 0 帧报文（且调用方未指定自定义 bbox），自动回退到
+         「波斯湾—阿曼湾」大区（HORMUZ_FALLBACK_BBOX）再探测一次，
+         用于区分"海峡局部无数据"与"aisstream 该海域整体无覆盖"。
+
     返回 dict：
-      成功 → {"ok": True, "total":..., "moving":..., "eastbound":...,
-              "westbound":..., "avg_speed":..., "type_counts":{...},
+      成功 → {"ok": True, "area": "strait"|"wide", "total":..., "moving":...,
+              "eastbound":..., "westbound":..., "avg_speed":..., "type_counts":{...},
               "tankers":[...], "msg_count":..., "window_sec":..., "bbox":...}
       失败 → {"ok": False, "error": "原因", ...}
     """
@@ -267,21 +280,37 @@ def collect_hormuz_traffic(window_sec: int | None = None,
         return {"ok": False, "error": "未配置 AISSTREAM_API_KEY", "total": 0}
 
     window_sec = window_sec or HORMUZ_WINDOW_SEC
-    bbox = bbox or HORMUZ_BBOX
+    use_default_bbox = bbox is None
+    primary_bbox = bbox or HORMUZ_BBOX
 
+    # ── 第一轮：海峡主航道 ──
     try:
-        positions, statics, msg_count, error = asyncio.run(
-            _stream(AISSTREAM_API_KEY, bbox, window_sec)
-        )
+        positions, statics, msg_count, error = _run_sample(primary_bbox, window_sec)
     except Exception as e:
         return {"ok": False, "error": f"AIS 连接/采样失败: {e}", "total": 0,
-                "window_sec": window_sec, "bbox": bbox}
+                "window_sec": window_sec, "bbox": primary_bbox}
 
     if error:
         return {"ok": False, "error": f"AIS 服务端错误: {error}", "total": 0,
-                "window_sec": window_sec, "bbox": bbox}
+                "window_sec": window_sec, "bbox": primary_bbox}
 
-    return _aggregate(positions, statics, msg_count, window_sec, bbox)
+    used_bbox = primary_bbox
+    area = "strait"
+
+    # ── 第二轮（仅默认 bbox 且首轮 0 帧时）：大区覆盖探测 ──
+    if msg_count == 0 and use_default_bbox:
+        print("[hormuz] 海峡窗口内 0 帧，回退至波斯湾—阿曼湾大区探测覆盖……")
+        try:
+            fb_pos, fb_stat, fb_count, fb_err = _run_sample(HORMUZ_FALLBACK_BBOX, window_sec)
+            if not fb_err and fb_count > 0:
+                positions, statics, msg_count = fb_pos, fb_stat, fb_count
+                used_bbox, area = HORMUZ_FALLBACK_BBOX, "wide"
+        except Exception as e:
+            print(f"[hormuz] 大区回退采样失败: {e}")
+
+    stats = _aggregate(positions, statics, msg_count, window_sec, used_bbox)
+    stats["area"] = area
+    return stats
 
 
 if __name__ == "__main__":
