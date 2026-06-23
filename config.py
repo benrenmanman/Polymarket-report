@@ -19,6 +19,17 @@ MPNEWS_ENABLED = bool(CORP_ID and CORP_SECRET and AGENT_ID)
 # 支持逗号、换行（含 \r\n）混合分隔，便于多行 Secret 配置。
 SLUGS = [s.strip() for s in re.split(r"[,\r\n]+", os.environ["MARKET_SLUGS"]) if s.strip()]
 
+# ── 霍尔木兹海峡 AIS 通行跟踪（aisstream.io，可选）──
+# 配置 AISSTREAM_API_KEY 后，定期报告会附带一段海峡实时通行态势。
+# 申请地址：https://aisstream.io/apikeys
+AISSTREAM_API_KEY = os.environ.get("AISSTREAM_API_KEY", "")
+HORMUZ_ENABLED    = bool(AISSTREAM_API_KEY)
+# 单次采样时长（秒）。aisstream 为实时推流，窗口越长覆盖船舶越全。
+HORMUZ_WINDOW_SEC = int(os.environ.get("HORMUZ_WINDOW_SEC", "60"))
+# 边界框：[[南纬, 西经], [北纬, 东经]]，覆盖霍尔木兹海峡主航道与进出港通道。
+# 西接波斯湾（霍尔木兹岛/格什姆岛一带），东连阿曼湾。
+HORMUZ_BBOX = [[25.5, 55.5], [27.0, 57.3]]
+
 # 删除内容：
 # - SUPABASE_URL / SUPABASE_KEY  （不再写数据库）
 # - HISTORY_FILE / MAX_SNAPSHOTS （不再本地存储）

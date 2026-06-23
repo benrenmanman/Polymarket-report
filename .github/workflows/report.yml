@@ -20,3 +20,6 @@ jobs:
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           OPENAI_MODEL:    ${{ secrets.OPENAI_MODEL }}
           MARKET_SLUGS:    ${{ secrets.MARKET_SLUGS }}
+          # 霍尔木兹海峡 AIS 通行跟踪（aisstream.io）；未配置则自动跳过该模块
+          AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
+          HORMUZ_WINDOW_SEC: ${{ secrets.HORMUZ_WINDOW_SEC }}

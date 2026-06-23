@@ -322,6 +322,83 @@ def send_image(image_bytes: bytes):
         raise RuntimeError(f"send_image 失败: {data}")
 
 
+def send_hormuz_card(stats: dict, analysis: str, timestamp: str):
+    """
+    发送霍尔木兹海峡实时通行态势 Markdown 卡片。
+    stats    : hormuz.collect_hormuz_traffic() 的返回值
+    analysis : analyzer.analyze_hormuz() 的中文研判（可为空串）
+    timestamp: 更新时间字符串
+    """
+    lines = ["## 🚢 霍尔木兹海峡通行实时跟踪", f"> {timestamp}"]
+
+    # ── 失败/无数据：给出明确提示 ──
+    if not stats or not stats.get("ok"):
+        reason = (stats or {}).get("error") or "未知错误"
+        lines.append(f'> <font color="warning">⚠️ AIS 采样失败：{reason}</font>')
+        lines.append("> 数据来源：[AISStream.io](https://aisstream.io/)")
+        send_long_markdown("\n".join(lines))
+        return
+
+    window = stats.get("window_sec", 0)
+    total  = stats.get("total", 0)
+    lines.append(f"> 数据来源：[AISStream.io](https://aisstream.io/)（实时 AIS）· 采样 {window} 秒")
+
+    if total == 0:
+        lines.append('> <font color="comment">采样窗口内未收到该海域 AIS 报文（可能为网络或时段原因）。</font>')
+        send_long_markdown("\n".join(lines))
+        return
+
+    moving   = stats.get("moving", 0)
+    anchored = stats.get("anchored", 0)
+    east     = stats.get("eastbound", 0)
+    west     = stats.get("westbound", 0)
+    avg_spd  = stats.get("avg_speed")
+
+    lines.append("")
+    lines.append(f"**在区船舶：{total} 艘**（航行中 {moving}，锚泊/停泊 {anchored}）")
+    spd_txt = f"　平均航速 {avg_spd} 节" if avg_spd is not None else ""
+    lines.append(
+        f'> 东行（出湾·驶向阿曼湾）：<font color="info">{east}</font> 艘　'
+        f'西行（入湾·驶入波斯湾）：<font color="warning">{west}</font> 艘{spd_txt}'
+    )
+
+    # ── 船型构成 ──
+    type_counts = stats.get("type_counts") or {}
+    if type_counts:
+        # 按数量降序，"未知"始终置末
+        ordered = sorted(
+            type_counts.items(),
+            key=lambda kv: (kv[0] == "未知", -kv[1]),
+        )
+        breakdown = "　".join(f"{name} {cnt}" for name, cnt in ordered)
+        lines.append("")
+        lines.append("**船型构成**")
+        lines.append(f"> {breakdown}")
+
+    # ── 重点油轮动向 ──
+    tankers = stats.get("tankers") or []
+    if tankers:
+        lines.append("")
+        lines.append("**重点油轮动向**")
+        dir_label = {"east": "东行", "west": "西行"}
+        for t in tankers:
+            parts = [f"🛢️ {t.get('name', '未知')}"]
+            if t.get("direction"):
+                parts.append(dir_label.get(t["direction"], ""))
+            if t.get("sog") is not None:
+                parts.append(f"{t['sog']:.1f}节")
+            if t.get("destination"):
+                parts.append(f"目的地 {t['destination']}")
+            lines.append("> " + "｜".join(p for p in parts if p))
+
+    # ── AI 研判 ──
+    if analysis:
+        lines.append("")
+        lines.append(f"**📈 形势研判**\n> {analysis}")
+
+    send_long_markdown("\n".join(lines))
+
+
 def send_highfreq_report(question: str, analysis: str, chart_bytes: bytes):
     """
     新增：组合发送高频报告（文字 + 图片）。
