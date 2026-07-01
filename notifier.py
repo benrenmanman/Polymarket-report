@@ -2,7 +2,7 @@ import time
 import requests
 import base64
 import hashlib
-from config import WECOM_WEBHOOK, CORP_ID, CORP_SECRET, AGENT_ID
+from config import WECOM_WEBHOOK, CORP_ID, CORP_SECRET, AGENT_ID, OPENAI_MODEL
 
 # template_card horizontal_content_list 最多支持 6 条
 _CARD_MAX_ITEMS = 6
@@ -148,6 +148,7 @@ def send_summary_card(slug_data: list, timestamp: str):
                     "title": "📊 市场概览",
                     "desc": timestamp,
                 },
+                "sub_title_text": f"LLM：{OPENAI_MODEL}",
                 "emphasis_content": {
                     "title": str(n_slugs),
                     "desc": "个监控市场",
@@ -203,6 +204,8 @@ def send_summary_card(slug_data: list, timestamp: str):
             sec.append(f"**{d['question']}：{price}**")
             sec.extend(_change_lines(d.get("changes_fmt")))
         sections.append(sec)
+    # 结尾追加数据来源脚注（LLM 型号），灰色小字，样式对齐其他报告
+    sections.append([f'<font color="comment">LLM：{OPENAI_MODEL}</font>'])
     _send_sections(preamble, sections)
 
 
