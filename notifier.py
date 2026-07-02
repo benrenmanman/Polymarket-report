@@ -327,6 +327,146 @@ def send_image(image_bytes: bytes):
         raise RuntimeError(f"send_image 失败: {data}")
 
 
+def _fmt_span(span_hours: float) -> str:
+    """把累积跨度格式化为友好文本：≥1h 显示小时，不足 1h 显示分钟。"""
+    span_hours = span_hours or 0
+    if span_hours >= 1:
+        return f"{span_hours:.0f}h"
+    minutes = span_hours * 60
+    return f"{minutes:.0f}分钟" if minutes >= 1 else "刚开始"
+
+
+def _hormuz_trend_lines(trend: dict | None) -> list[str]:
+    """构建通行趋势区块（基于本地累积快照，最长保留 24h）。无数据时返回空列表。"""
+    if not trend or trend.get("points", 0) < 1:
+        return []
+    pts = trend["points"]
+    if pts < 2:
+        # 仅 1 个数据点：尚无法比较，提示正在积累
+        return ["", f"**📅 通行趋势** <font color=\"comment\">数据积累中（已记录 {pts} 次）</font>"]
+
+    out = ["", f"**📅 通行趋势**（{pts} 次采样 / 跨度 {_fmt_span(trend.get('span_hours'))}）"]
+
+    now   = trend.get("total_now", 0)
+    parts = [f"在区船舶 {now}"]
+    if trend.get("total_prev") is not None:
+        parts.append(f"较上次 {now - trend['total_prev']:+d}")
+    if trend.get("total_earliest") is not None:
+        parts.append(f"较最早 {now - trend['total_earliest']:+d}")
+    out.append("> " + "　".join(parts))
+    out.append(
+        f"> 区间 {trend.get('total_min', 0)} ~ {trend.get('total_max', 0)} 艘"
+        f"　当前油轮 {trend.get('tankers_now', 0)}"
+    )
+    return out
+
+
+def send_hormuz_card(stats: dict, analysis: str, timestamp: str, trend: dict | None = None):
+    """
+    发送霍尔木兹海峡实时通行态势 Markdown 卡片。
+    stats    : hormuz.collect_hormuz_traffic() 的返回值
+    analysis : analyzer.analyze_hormuz() 的中文研判（可为空串）
+    timestamp: 更新时间字符串
+    trend    : hormuz_history.summarize_trend() 的返回值（可为 None）
+    """
+    lines = ["## 🚢 霍尔木兹海峡通行实时跟踪", f"> {timestamp}"]
+
+    # ── 数据源标识（vesselapi / aisstream）──
+    source = (stats or {}).get("source", "aisstream")
+    src_name, src_url = {
+        "vesselapi": ("VesselAPI", "https://vesselapi.com/"),
+        "aisstream": ("AISStream.io", "https://aisstream.io/"),
+    }.get(source, ("AISStream.io", "https://aisstream.io/"))
+
+    # ── 失败：给出明确提示 ──
+    if not stats or not stats.get("ok"):
+        reason = (stats or {}).get("error") or "未知错误"
+        lines.append(f'> <font color="warning">⚠️ 通行数据采集失败：{reason}</font>')
+        lines.append(f"> 数据来源：[{src_name}]({src_url})")
+        send_long_markdown("\n".join(lines))
+        return
+
+    total  = stats.get("total", 0)
+    frames = stats.get("msg_count", 0)
+    area   = stats.get("area", "strait")
+    if source == "vesselapi":
+        meta = f"REST 快照 · 返回 {frames} 条"
+    else:
+        meta = f"采样 {stats.get('window_sec', 0)} 秒 · 收到 {frames} 帧"
+    lines.append(f"> 数据来源：[{src_name}]({src_url})（AIS）· {meta}")
+
+    # 海峡边界框无数据、已回退到大区时，明确标注数据范围
+    if area == "wide":
+        lines.append(
+            '> <font color="comment">⚠️ 海峡主航道无数据，'
+            '以下为「波斯湾—阿曼湾」大区探测结果。</font>'
+        )
+
+    if total == 0:
+        if source == "vesselapi":
+            hint = "未返回任何船舶（已含大区探测）。请检查 API Key / 配额，或该海域确无数据。"
+        else:
+            hint = ("采样窗口内未收到 AIS 报文（含大区覆盖探测）。多为 aisstream 在该海域"
+                    "缺少岸基接收机覆盖；可尝试调大 HORMUZ_WINDOW_SEC，或更换为 VesselAPI。")
+        lines.append(f'> <font color="comment">{hint}</font>')
+        lines += _hormuz_trend_lines(trend)
+        send_long_markdown("\n".join(lines))
+        return
+
+    moving   = stats.get("moving", 0)
+    anchored = stats.get("anchored", 0)
+    east     = stats.get("eastbound", 0)
+    west     = stats.get("westbound", 0)
+    avg_spd  = stats.get("avg_speed")
+
+    lines.append("")
+    lines.append(f"**在区船舶：{total} 艘**（航行中 {moving}，锚泊/停泊 {anchored}）")
+    spd_txt = f"　平均航速 {avg_spd} 节" if avg_spd is not None else ""
+    lines.append(
+        f'> 东行（出湾·驶向阿曼湾）：<font color="info">{east}</font> 艘　'
+        f'西行（入湾·驶入波斯湾）：<font color="warning">{west}</font> 艘{spd_txt}'
+    )
+
+    # ── 过去 24h 趋势（方案 B 累积）──
+    lines += _hormuz_trend_lines(trend)
+
+    # ── 船型构成 ──
+    type_counts = stats.get("type_counts") or {}
+    if type_counts:
+        # 按数量降序，"未知"始终置末
+        ordered = sorted(
+            type_counts.items(),
+            key=lambda kv: (kv[0] == "未知", -kv[1]),
+        )
+        breakdown = "　".join(f"{name} {cnt}" for name, cnt in ordered)
+        lines.append("")
+        lines.append("**船型构成**")
+        lines.append(f"> {breakdown}")
+
+    # ── 重点油轮动向 ──
+    tankers = stats.get("tankers") or []
+    if tankers:
+        lines.append("")
+        lines.append("**重点油轮动向**")
+        dir_label = {"east": "东行", "west": "西行"}
+        for t in tankers:
+            parts = [f"🛢️ {t.get('name', '未知')}"]
+            if t.get("direction"):
+                parts.append(dir_label.get(t["direction"], ""))
+            if t.get("sog") is not None:
+                parts.append(f"{t['sog']:.1f}节")
+            if t.get("destination"):
+                parts.append(f"目的地 {t['destination']}")
+            lines.append("> " + "｜".join(p for p in parts if p))
+
+    # ── AI 研判 ──
+    if analysis:
+        lines.append("")
+        lines.append(f"**📈 形势研判**\n> {analysis}")
+
+    send_long_markdown("\n".join(lines))
+
+
 def send_highfreq_report(question: str, analysis: str, chart_bytes: bytes):
     """
     新增：组合发送高频报告（文字 + 图片）。

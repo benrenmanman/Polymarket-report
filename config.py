@@ -1,6 +1,20 @@
 import os
 import re
 
+
+def _int_env(name: str, default: int) -> int:
+    """
+    读取整数型环境变量；未设置 / 为空串 / 非法值时回退到 default。
+    注：GitHub Actions 在引用了不存在的 Secret 时，会把对应 env 设为
+    空字符串（而非不设置），直接 int("") 会抛 ValueError，故统一兜底。
+    """
+    raw = (os.environ.get(name) or "").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 # ── 敏感信息：从环境变量读取 ──
 WECOM_WEBHOOK   = os.environ["WECOM_WEBHOOK"]
 OPENAI_API_KEY  = os.environ["OPENAI_API_KEY"]
@@ -11,13 +25,62 @@ OPENAI_MODEL    = os.environ["OPENAI_MODEL"]
 # 若未配置，则保持原有群机器人 Webhook 推送方式。
 CORP_ID     = os.environ.get("CORP_ID", "")
 CORP_SECRET = os.environ.get("CORP_SECRET", "")
-AGENT_ID    = int(os.environ.get("AGENT_ID", "0"))
+AGENT_ID    = _int_env("AGENT_ID", 0)
 # 三项均配置时启用 mpnews（将所有内容打包为一篇图文）
 MPNEWS_ENABLED = bool(CORP_ID and CORP_SECRET and AGENT_ID)
 
 # ── 市场 Slug 列表 ──
 # 支持逗号、换行（含 \r\n）混合分隔，便于多行 Secret 配置。
 SLUGS = [s.strip() for s in re.split(r"[,\r\n]+", os.environ["MARKET_SLUGS"]) if s.strip()]
+
+# ── 霍尔木兹海峡 AIS 通行跟踪（aisstream.io，可选）──
+# 配置 AISSTREAM_API_KEY 后，定期报告会附带一段海峡实时通行态势。
+# 申请地址：https://aisstream.io/apikeys
+# .strip() 兜底 Secret 末尾可能混入的换行/空白，避免破坏 WebSocket 鉴权。
+AISSTREAM_API_KEY = os.environ.get("AISSTREAM_API_KEY", "").strip()
+# 单次采样时长（秒）。aisstream 为实时推流，窗口越长覆盖船舶越全。
+# 用 _int_env 兜底：未配置该可选 Secret 时 GitHub Actions 传入空串。
+HORMUZ_WINDOW_SEC = _int_env("HORMUZ_WINDOW_SEC", 60)
+# 边界框：[[南纬, 西经], [北纬, 东经]]，覆盖霍尔木兹海峡主航道与进出港通道。
+# 西接波斯湾（霍尔木兹岛/格什姆岛一带），东连阿曼湾。
+HORMUZ_BBOX = [[25.5, 55.5], [27.0, 57.3]]
+# 回退大区域：当海峡边界框采样为 0 帧时，用更大的"波斯湾—阿曼湾"范围
+# 再探测一次，借此判断 aisstream 在该片海域是否有岸基覆盖。
+HORMUZ_FALLBACK_BBOX = [[22.5, 48.0], [30.5, 60.5]]
+# 方案 B：通行快照本地累积文件 + 趋势保留窗口（小时）。
+# aisstream 无历史接口，故每次报告把快照追加到该 JSON，逐步攒成时间序列；
+# 由 GitHub Actions 在运行后提交回仓库实现跨运行持久化。
+HORMUZ_HISTORY_FILE  = os.environ.get("HORMUZ_HISTORY_FILE", "hormuz_history.json")
+HORMUZ_HISTORY_HOURS = _int_env("HORMUZ_HISTORY_HOURS", 24)
+
+# ── 数据源选择：VesselAPI（REST，商用）或 aisstream（实时流，免费）──
+# VesselAPI（https://vesselapi.com/）为 REST 接口，一次请求即可拿到边界框内
+# 当前全部船舶，更适合定期一次性任务、覆盖通常更全。支持配置多把 key
+# （逗号/空白分隔），运行时按序故障切换（配额叠加 + 冗余）。
+VESSELAPI_KEYS = [
+    k.strip() for k in re.split(r"[,\s]+", os.environ.get("VESSELAPI_KEYS", "")) if k.strip()
+]
+# 显式指定来源：'vesselapi' / 'aisstream'；留空则自动择优：
+#   有 VesselAPI key → vesselapi；否则有 aisstream key → aisstream；都无则停用。
+HORMUZ_SOURCE = os.environ.get("HORMUZ_SOURCE", "").strip().lower()
+
+
+def _effective_hormuz_source() -> str:
+    if HORMUZ_SOURCE in ("vesselapi", "aisstream"):
+        # 显式指定但对应 key 缺失时，回退到另一可用源
+        if HORMUZ_SOURCE == "vesselapi" and VESSELAPI_KEYS:
+            return "vesselapi"
+        if HORMUZ_SOURCE == "aisstream" and AISSTREAM_API_KEY:
+            return "aisstream"
+    if VESSELAPI_KEYS:
+        return "vesselapi"
+    if AISSTREAM_API_KEY:
+        return "aisstream"
+    return ""
+
+
+HORMUZ_SOURCE_EFFECTIVE = _effective_hormuz_source()
+HORMUZ_ENABLED = bool(HORMUZ_SOURCE_EFFECTIVE)
 
 # 删除内容：
 # - SUPABASE_URL / SUPABASE_KEY  （不再写数据库）

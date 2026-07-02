@@ -2,10 +2,18 @@ name: Polymarket Report
 
 on:
   workflow_dispatch:
+  schedule:
+    # 每 3 小时整点运行（UTC）。北京时间约 08:00/11:00/14:00/17:00/20:00/23:00/02:00/05:00。
+    # 想调频率改这里，例如每小时 '0 * * * *'、每 6 小时 '0 */6 * * *'。
+    # 注意：GitHub 的 schedule 仅在“默认分支(main)”生效，需先把本分支合并到 main 才会自动跑。
+    - cron: '0 */3 * * *'
 
 jobs:
   report:
     runs-on: ubuntu-latest
+    # 方案 B：允许将累积的 hormuz_history.json 提交回仓库
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,3 +28,33 @@ jobs:
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           OPENAI_MODEL:    ${{ secrets.OPENAI_MODEL }}
           MARKET_SLUGS:    ${{ secrets.MARKET_SLUGS }}
+          # 霍尔木兹海峡通行跟踪；两个数据源任配其一即可，都未配则自动跳过该模块。
+          # VesselAPI（REST，商用，覆盖更全；可填多把 key，逗号分隔）
+          VESSELAPI_KEYS:   ${{ secrets.VESSELAPI_KEYS }}
+          # 数据源选择：vesselapi / aisstream（留空自动择优：有 VesselAPI key 则用之）
+          HORMUZ_SOURCE:    ${{ secrets.HORMUZ_SOURCE }}
+          # 调试：设为 1 时把首条原始记录打到运行日志，便于核对真实字段名
+          HORMUZ_DEBUG:     ${{ secrets.HORMUZ_DEBUG }}
+          # aisstream.io（实时流，免费）
+          AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
+          HORMUZ_WINDOW_SEC: ${{ secrets.HORMUZ_WINDOW_SEC }}
+          HORMUZ_HISTORY_HOURS: ${{ secrets.HORMUZ_HISTORY_HOURS }}
+      # 方案 B：把本次通行快照累积写回仓库（实现跨运行持久化）。
+      # best-effort：失败不影响报告本身；report.yml 仅 workflow_dispatch 触发，
+      # 故此提交不会再触发工作流（无循环风险），仍加 [skip ci] 以示明确。
+      - name: Persist Hormuz traffic history
+        if: always()
+        run: |
+          if [ -f hormuz_history.json ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add hormuz_history.json
+            if git diff --cached --quiet; then
+              echo "hormuz_history.json 无变化，跳过提交"
+            else
+              git commit -m "chore(hormuz): 累积通行快照 [skip ci]"
+              git push origin HEAD:${{ github.ref_name }} || echo "::warning::history 推送失败（可能为并发运行），本次快照未持久化"
+            fi
+          else
+            echo "未生成 hormuz_history.json（模块可能未启用），跳过"
+          fi

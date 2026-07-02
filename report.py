@@ -10,17 +10,36 @@ from analyzer import (
     translate_sub_options_short,
     summarize_highfreq,
     analyze_highfreq,
+    analyze_hormuz,
     plot_highfreq,
 )
 from notifier import (
     send_text,
     send_highfreq_report,
     send_summary_card,
+    send_hormuz_card,
     upload_image_for_mpnews,
     upload_media_thumb,
     send_mpnews,
 )
-from config import SLUGS, MPNEWS_ENABLED
+from hormuz import collect_hormuz_traffic
+from hormuz_history import append_snapshot, summarize_trend
+from config import (
+    SLUGS,
+    MPNEWS_ENABLED,
+    HORMUZ_ENABLED,
+    HORMUZ_SOURCE_EFFECTIVE,
+    HORMUZ_HISTORY_FILE,
+    HORMUZ_HISTORY_HOURS,
+)
+
+
+def _collect_hormuz_stats() -> dict:
+    """按配置的数据源采样霍尔木兹海峡通行情况（vesselapi / aisstream）。"""
+    if HORMUZ_SOURCE_EFFECTIVE == "vesselapi":
+        from vesselapi import collect_hormuz_traffic_vesselapi
+        return collect_hormuz_traffic_vesselapi()
+    return collect_hormuz_traffic()
 
 
 # ──────────────────────────────────────────
@@ -776,7 +795,55 @@ def run_all_highfreq_reports(slugs: list):
 
 
 # ──────────────────────────────────────────
+# 霍尔木兹海峡通行情况跟踪（基于 aisstream.io 实时 AIS）
+# ──────────────────────────────────────────
+def run_hormuz_report():
+    """
+    采样霍尔木兹海峡实时 AIS 通行态势，生成 AI 研判并推送卡片。
+    未配置 AISSTREAM_API_KEY 时静默跳过；任何异常均不影响 Polymarket 主报告。
+    """
+    if not HORMUZ_ENABLED:
+        print("[report] 未配置 AISSTREAM_API_KEY，跳过霍尔木兹海峡跟踪")
+        return
+
+    beijing_tz = timezone(timedelta(hours=8))
+    timestamp  = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M 北京时间")
+
+    print(f"[report] 开始采样霍尔木兹海峡通行数据（数据源：{HORMUZ_SOURCE_EFFECTIVE}）……")
+    try:
+        stats = _collect_hormuz_stats()
+    except Exception as e:
+        print(f"[report] 霍尔木兹采样异常: {e}")
+        stats = {"ok": False, "error": str(e), "total": 0,
+                 "source": HORMUZ_SOURCE_EFFECTIVE}
+
+    # ── 方案 B：累积快照并计算 24h 趋势（仅成功采样时记录）──
+    trend = None
+    if stats.get("ok"):
+        try:
+            history = append_snapshot(stats, HORMUZ_HISTORY_FILE, HORMUZ_HISTORY_HOURS)
+            trend = summarize_trend(history)
+        except Exception as e:
+            print(f"[report] 霍尔木兹历史累积失败: {e}")
+
+    analysis = ""
+    if stats.get("ok"):
+        try:
+            analysis = analyze_hormuz(stats)
+        except Exception as e:
+            print(f"[report] 霍尔木兹 AI 研判失败: {e}")
+
+    try:
+        send_hormuz_card(stats, analysis, timestamp, trend)
+        print(f"[report] 霍尔木兹海峡卡片已发送（在区船舶 {stats.get('total', 0)} 艘）")
+    except Exception as e:
+        print(f"[report] 霍尔木兹卡片发送失败: {e}")
+
+
+# ──────────────────────────────────────────
 # 入口
 # ──────────────────────────────────────────
 if __name__ == "__main__":
     run_all_highfreq_reports(SLUGS)
+    # 霍尔木兹海峡实时通行跟踪（独立于上方早退分支，确保始终随报告一同推送）
+    run_hormuz_report()

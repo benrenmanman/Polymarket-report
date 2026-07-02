@@ -128,6 +128,51 @@ def analyze_snapshot(snapshot: dict) -> str:
 
 
 # ──────────────────────────────────────────
+# 新增：霍尔木兹海峡通行态势 AI 研判
+# ──────────────────────────────────────────
+def analyze_hormuz(stats: dict) -> str:
+    """
+    对霍尔木兹海峡实时 AIS 通行统计给出简洁中文研判。
+    stats: hormuz.collect_hormuz_traffic() 的返回值。
+    失败或无数据时返回空串（调用方据此省略该段）。
+    """
+    if not stats or not stats.get("ok"):
+        return ""
+    if stats.get("total", 0) == 0:
+        return ""
+
+    payload = {
+        "采样时长_秒":   stats.get("window_sec"),
+        "在区船舶总数":   stats.get("total"),
+        "航行中":        stats.get("moving"),
+        "锚泊或停泊":     stats.get("anchored"),
+        "东行_出湾_驶向阿曼湾": stats.get("eastbound"),
+        "西行_入湾_驶入波斯湾": stats.get("westbound"),
+        "平均航速_节":   stats.get("avg_speed"),
+        "船型构成":      stats.get("type_counts"),
+    }
+    prompt = (
+        "你是一名航运与地缘风险分析师。霍尔木兹海峡是全球最重要的能源运输咽喉，"
+        "约五分之一的海运石油经此通行。以下是该海峡某时段的实时 AIS 通行统计，"
+        "请用中文给出简洁研判（120字以内）：\n"
+        "1. 当前通行是否正常、繁忙还是清淡；\n"
+        "2. 油轮/货船活动与进出湾流向是否有异常；\n"
+        "3. 若出现船舶骤减、集中锚泊或航速异常，提示可能的中断风险。\n"
+        "仅基于数据客观描述，不要编造未提供的信息。\n\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[analyzer] analyze_hormuz 失败: {e}")
+        return ""
+
+
+# ──────────────────────────────────────────
 # 新增：高频数据统计摘要
 # ──────────────────────────────────────────
 def summarize_highfreq(df: pd.DataFrame, mode: str = "1min") -> dict:
