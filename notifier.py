@@ -179,7 +179,11 @@ def send_summary_card(slug_data: list, timestamp: str):
     # 为避免超长时"按行"切分把单个市场拆到两条消息里（例如只剩
     # "5d:-3.0%  14d:-4.0%" 孤零零出现），把每个市场构建为独立的 section，
     # 统一由 _send_sections 按市场边界打包发送。
-    preamble = ["## 📊 Polymarket 市场概览", f"> {timestamp}"]
+    preamble = [
+        "## 📊 Polymarket 市场概览",
+        f"> {timestamp}",
+        f'<font color="comment">LLM：{OPENAI_MODEL}</font>',
+    ]
     sections: list[list[str]] = []
     for d in slug_data:
         sec: list[str] = []
@@ -204,8 +208,6 @@ def send_summary_card(slug_data: list, timestamp: str):
             sec.append(f"**{d['question']}：{price}**")
             sec.extend(_change_lines(d.get("changes_fmt")))
         sections.append(sec)
-    # 结尾追加数据来源脚注（LLM 型号），灰色小字，样式对齐其他报告
-    sections.append([f'<font color="comment">LLM：{OPENAI_MODEL}</font>'])
     _send_sections(preamble, sections)
 
 
